@@ -217,6 +217,81 @@ it.effect("uses stable diagnostics for every parsed non-repository command", () 
   }).pipe(Effect.provide(layer));
 });
 
+it.effect("delegates worktree creation to a configured helper and resolves its Git path", () => {
+  const commands: Array<{
+    readonly command: string;
+    readonly args: ReadonlyArray<string>;
+    readonly herdrRepo?: string;
+  }> = [];
+  const helperPath = "/herdr/worktrees/slateo/from-phone";
+  const spawner = ChildProcessSpawner.make((command) =>
+    Effect.sync(() => {
+      if (!ChildProcess.isStandardCommand(command)) {
+        return assert.fail("expected a standard command");
+      }
+      commands.push({
+        command: command.command,
+        args: command.args,
+        ...(command.options.env?.HERDR_REPO ? { herdrRepo: command.options.env.HERDR_REPO } : {}),
+      });
+      if (command.command === "worktree-helper") {
+        return makeSuccessfulHandle("helper output is intentionally ignored");
+      }
+      if (
+        command.command === "git" &&
+        command.args.join("\0") === "worktree\0list\0--porcelain\0-z"
+      ) {
+        return makeSuccessfulHandle(
+          `worktree /repos/slateo\0HEAD abc\0branch refs/heads/main\0\0worktree ${helperPath}\0HEAD def\0branch refs/heads/feature/from-phone\0\0`,
+        );
+      }
+      if (command.command === "git" && command.args.join("\0") === "rev-parse\0--git-common-dir") {
+        return makeNonRepositoryHandle();
+      }
+      return assert.fail(`unexpected command: ${command.command} ${command.args.join(" ")}`);
+    }),
+  );
+  const nodeServicesLayer = Layer.merge(
+    NodeServices.layer,
+    Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
+  );
+  const layer = ServerConfigLayer.pipe(Layer.provideMerge(nodeServicesLayer));
+
+  return Effect.gen(function* () {
+    const driver = yield* makeGitVcsDriverCore({
+      worktreeHelper: { command: "worktree-helper", timeoutMs: 90_000 },
+    });
+    const created = yield* driver.createWorktree({
+      cwd: "/repos/slateo",
+      refName: "main",
+      newRefName: "feature/from-phone",
+      path: null,
+    });
+
+    assert.deepStrictEqual(created, {
+      worktree: {
+        path: helperPath,
+        refName: "feature/from-phone",
+      },
+    });
+    assert.deepStrictEqual(commands, [
+      {
+        command: "worktree-helper",
+        args: ["new", "feature/from-phone"],
+        herdrRepo: "/repos/slateo",
+      },
+      {
+        command: "git",
+        args: ["worktree", "list", "--porcelain", "-z"],
+      },
+      {
+        command: "git",
+        args: ["rev-parse", "--git-common-dir"],
+      },
+    ]);
+  }).pipe(Effect.provide(layer));
+});
+
 it.effect("invalidates origin remote cache when a driver mutation adds origin", () =>
   Effect.gen(function* () {
     const driver = yield* GitVcsDriver.GitVcsDriver;

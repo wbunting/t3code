@@ -31,6 +31,12 @@ import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
+import * as VcsProcess from "./VcsProcess.ts";
+import {
+  resolveWorktreeHelperConfig,
+  runWorktreeHelper,
+  type WorktreeHelperConfig,
+} from "./WorktreeHelper.ts";
 import {
   parseRemoteNames,
   parseRemoteNamesInGitOrder,
@@ -721,12 +727,22 @@ const collectOutput = Effect.fnUntraced(function* (
   };
 });
 
-export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* () {
+export interface GitVcsDriverCoreOptions {
+  readonly worktreeHelper?: WorktreeHelperConfig | null;
+}
+
+export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* (
+  options: GitVcsDriverCoreOptions = {},
+) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const { worktreesDir } = yield* ServerConfig;
   const crypto = yield* Crypto.Crypto;
+  const worktreeHelper =
+    options.worktreeHelper === null
+      ? undefined
+      : (options.worktreeHelper ?? resolveWorktreeHelperConfig());
 
   const executeRaw: GitVcsDriver.GitVcsDriver["Service"]["execute"] = Effect.fnUntraced(
     function* (input) {
@@ -2871,17 +2887,45 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     "createWorktree",
   )(function* (input) {
     const targetBranch = input.newRefName ?? input.refName;
-    const sanitizedBranch = targetBranch.replace(/\//g, "-");
-    const repoName = path.basename(input.cwd);
-    const worktreePath = input.path ?? path.join(worktreesDir, repoName, sanitizedBranch);
-    const args = input.newRefName
-      ? ["worktree", "add", "-b", input.newRefName, worktreePath, input.refName]
-      : ["worktree", "add", worktreePath, input.refName];
+    let worktreePath: string;
 
-    yield* executeGit("GitVcsDriver.createWorktree", input.cwd, args, {
-      fallbackErrorDetail: "git worktree add failed",
-      timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
-    });
+    if (worktreeHelper) {
+      yield* runWorktreeHelper(worktreeHelper, input).pipe(
+        Effect.provide(VcsProcess.layer),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, commandSpawner),
+      );
+
+      const worktreeList = yield* executeGit(
+        "GitVcsDriver.createWorktree.helper.resolvePath",
+        input.cwd,
+        ["worktree", "list", "--porcelain", "-z"],
+        { fallbackErrorDetail: "git worktree list failed after helper provisioning" },
+      );
+      const helperPath = parseWorktreeBranchPaths(worktreeList.stdout).get(targetBranch);
+      if (!helperPath) {
+        return yield* new GitCommandError({
+          ...gitCommandContext({
+            operation: "GitVcsDriver.createWorktree.helper.resolvePath",
+            cwd: input.cwd,
+            args: [targetBranch],
+          }),
+          detail: `The worktree helper completed without registering a worktree for '${targetBranch}'.`,
+        });
+      }
+      worktreePath = helperPath;
+    } else {
+      const sanitizedBranch = targetBranch.replace(/\//g, "-");
+      const repoName = path.basename(input.cwd);
+      worktreePath = input.path ?? path.join(worktreesDir, repoName, sanitizedBranch);
+      const args = input.newRefName
+        ? ["worktree", "add", "-b", input.newRefName, worktreePath, input.refName]
+        : ["worktree", "add", worktreePath, input.refName];
+
+      yield* executeGit("GitVcsDriver.createWorktree", input.cwd, args, {
+        fallbackErrorDetail: "git worktree add failed",
+        timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+      });
+    }
 
     // `git worktree add` leaves submodules empty, so a repo that keeps agent
     // skills, tooling or source in one gets a worktree that is quietly missing
