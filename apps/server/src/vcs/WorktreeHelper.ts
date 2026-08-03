@@ -9,7 +9,10 @@ const MAX_TIMEOUT_MS = 60 * 60 * 1_000;
 export interface WorktreeHelperConfig {
   readonly command: string;
   readonly timeoutMs: number;
+  readonly backgroundProvisioning: boolean;
 }
+
+export type WorktreeHelperPhase = "register" | "enqueue-provision";
 
 export interface WorktreeHelperInvocation {
   readonly args: ReadonlyArray<string>;
@@ -33,7 +36,11 @@ export function resolveWorktreeHelperConfig(
       ? configuredTimeout
       : DEFAULT_TIMEOUT_MS;
 
-  return { command, timeoutMs };
+  return {
+    command,
+    timeoutMs,
+    backgroundProvisioning: env.T3CODE_WORKTREE_HELPER_BACKGROUND_PROVISIONING?.trim() === "1",
+  };
 }
 
 export const makeWorktreeHelperInvocation = Effect.fn(
@@ -41,6 +48,7 @@ export const makeWorktreeHelperInvocation = Effect.fn(
 )(function* (
   config: WorktreeHelperConfig,
   input: VcsCreateWorktreeInput,
+  phase: WorktreeHelperPhase = "register",
 ): Effect.fn.Return<WorktreeHelperInvocation, GitCommandError> {
   if (input.path !== null) {
     return yield* new GitCommandError({
@@ -52,11 +60,29 @@ export const makeWorktreeHelperInvocation = Effect.fn(
     });
   }
 
+  const targetBranch = input.newRefName ?? input.refName;
+  if (phase === "enqueue-provision") {
+    return {
+      args: ["provision-background", targetBranch],
+      env: {
+        HERDR_REPO: input.cwd,
+        WT_FG: "0",
+      },
+    };
+  }
+
   return {
     args: input.newRefName ? ["new", input.newRefName] : ["checkout", input.refName],
     env: {
       HERDR_REPO: input.cwd,
       WT_FG: "0",
+      ...(config.backgroundProvisioning
+        ? {
+            WT_DEVBOX: "0",
+            WT_TAILSCALE_SERVE: "0",
+            WT_WORKER: "0",
+          }
+        : {}),
     },
   };
 });
@@ -64,9 +90,18 @@ export const makeWorktreeHelperInvocation = Effect.fn(
 export const runWorktreeHelper = Effect.fn("WorktreeHelper.run")(function* (
   config: WorktreeHelperConfig,
   input: VcsCreateWorktreeInput,
+  phase: WorktreeHelperPhase = "register",
 ) {
-  const invocation = yield* makeWorktreeHelperInvocation(config, input);
+  const invocation = yield* makeWorktreeHelperInvocation(config, input, phase);
   const processRunner = yield* VcsProcess.VcsProcess;
+  const branch = input.newRefName ?? input.refName;
+
+  yield* Effect.logInfo("worktree helper invocation started", {
+    branch,
+    command: config.command,
+    cwd: input.cwd,
+    phase,
+  });
 
   yield* processRunner
     .run({
@@ -90,5 +125,29 @@ export const runWorktreeHelper = Effect.fn("WorktreeHelper.run")(function* (
             cause,
           }),
       ),
+      Effect.tapError((cause) =>
+        Effect.logError("worktree helper invocation failed", {
+          branch,
+          cause,
+          command: config.command,
+          cwd: input.cwd,
+          phase,
+        }),
+      ),
+      Effect.onInterrupt(() =>
+        Effect.logWarning("worktree helper invocation interrupted", {
+          branch,
+          command: config.command,
+          cwd: input.cwd,
+          phase,
+        }),
+      ),
     );
+
+  yield* Effect.logInfo("worktree helper invocation completed", {
+    branch,
+    command: config.command,
+    cwd: input.cwd,
+    phase,
+  });
 });

@@ -2913,6 +2913,28 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         });
       }
       worktreePath = helperPath;
+
+      yield* Effect.logInfo("worktree helper registered local worktree", {
+        branch: targetBranch,
+        cwd: input.cwd,
+        path: worktreePath,
+      });
+
+      if (worktreeHelper.backgroundProvisioning) {
+        yield* runWorktreeHelper(worktreeHelper, input, "enqueue-provision").pipe(
+          Effect.provide(VcsProcess.layer),
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, commandSpawner),
+          Effect.uninterruptible,
+          Effect.catch((cause) =>
+            Effect.logError("worktree helper background provisioning enqueue failed", {
+              branch: targetBranch,
+              cause,
+              cwd: input.cwd,
+              path: worktreePath,
+            }),
+          ),
+        );
+      }
     } else {
       const sanitizedBranch = targetBranch.replace(/\//g, "-");
       const repoName = path.basename(input.cwd);

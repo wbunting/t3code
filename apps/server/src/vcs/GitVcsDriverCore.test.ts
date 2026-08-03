@@ -259,7 +259,11 @@ it.effect("delegates worktree creation to a configured helper and resolves its G
 
   return Effect.gen(function* () {
     const driver = yield* makeGitVcsDriverCore({
-      worktreeHelper: { command: "worktree-helper", timeoutMs: 90_000 },
+      worktreeHelper: {
+        command: "worktree-helper",
+        timeoutMs: 90_000,
+        backgroundProvisioning: true,
+      },
     });
     const created = yield* driver.createWorktree({
       cwd: "/repos/slateo",
@@ -283,6 +287,11 @@ it.effect("delegates worktree creation to a configured helper and resolves its G
       {
         command: "git",
         args: ["worktree", "list", "--porcelain", "-z"],
+      },
+      {
+        command: "worktree-helper",
+        args: ["provision-background", "feature/from-phone"],
+        herdrRepo: "/repos/slateo",
       },
       {
         command: "git",
