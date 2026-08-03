@@ -14,6 +14,12 @@ import {
 const config = {
   command: "/usr/local/bin/worktree-helper",
   timeoutMs: 90_000,
+  backgroundProvisioning: false,
+} as const;
+
+const backgroundConfig = {
+  ...config,
+  backgroundProvisioning: true,
 } as const;
 
 it("leaves normal Git worktree creation enabled when no helper is configured", () => {
@@ -35,11 +41,17 @@ it("normalizes the helper command and bounds its timeout", () => {
     })?.timeoutMs,
     15 * 60 * 1_000,
   );
+  assert.isTrue(
+    resolveWorktreeHelperConfig({
+      T3CODE_WORKTREE_HELPER: "worktree-helper",
+      T3CODE_WORKTREE_HELPER_BACKGROUND_PROVISIONING: "1",
+    })?.backgroundProvisioning,
+  );
 });
 
-it.effect("routes new branches through the helper's Herder flow", () =>
+it.effect("registers a local worktree without provisioning when background mode is enabled", () =>
   Effect.gen(function* () {
-    const invocation = yield* makeWorktreeHelperInvocation(config, {
+    const invocation = yield* makeWorktreeHelperInvocation(backgroundConfig, {
       cwd: "/repos/slateo",
       refName: "origin/main",
       newRefName: "feature/from-phone",
@@ -48,6 +60,31 @@ it.effect("routes new branches through the helper's Herder flow", () =>
     });
 
     assert.deepStrictEqual(invocation.args, ["new", "feature/from-phone"]);
+    assert.deepStrictEqual(invocation.env, {
+      HERDR_REPO: "/repos/slateo",
+      WT_FG: "0",
+      WT_DEVBOX: "0",
+      WT_TAILSCALE_SERVE: "0",
+      WT_WORKER: "0",
+    });
+  }),
+);
+
+it.effect("queues provisioning for the registered branch", () =>
+  Effect.gen(function* () {
+    const invocation = yield* makeWorktreeHelperInvocation(
+      backgroundConfig,
+      {
+        cwd: "/repos/slateo",
+        refName: "origin/main",
+        newRefName: "feature/from-phone",
+        baseRefName: "origin/main",
+        path: null,
+      },
+      "enqueue-provision",
+    );
+
+    assert.deepStrictEqual(invocation.args, ["provision-background", "feature/from-phone"]);
     assert.deepStrictEqual(invocation.env, {
       HERDR_REPO: "/repos/slateo",
       WT_FG: "0",
