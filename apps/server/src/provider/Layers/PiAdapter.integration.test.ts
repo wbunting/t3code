@@ -24,7 +24,6 @@ import {
 import { ServerConfig } from "../../config.ts";
 import type { PiAdapterShape } from "../Services/PiAdapter.ts";
 import { makePiAdapter } from "./PiAdapter.ts";
-import type { HerdrAgentState } from "./HerdrAgentReporter.ts";
 import type {
   AgentSessionEvent,
   PiRpcTransport,
@@ -550,74 +549,6 @@ it.layer(HarnessLayer)("PiAdapter integration", (it) => {
         id: "ui-1",
         confirmed: true,
       });
-    }),
-  );
-
-  it.effect("reports T3-owned Pi lifecycle state to Herdr", () =>
-    Effect.gen(function* () {
-      const fake = yield* makeFakePiRpcTransport;
-      const states: Array<{ readonly state: HerdrAgentState; readonly message?: string }> = [];
-      let released = false;
-      const adapter = yield* makePiAdapter(enabledSettings(), {
-        makeTransport: () => Effect.succeed(fake.transport),
-        createHerdrAgentReporter: () =>
-          Effect.succeed({
-            report: (state, message) =>
-              Effect.sync(() => {
-                states.push({ state, ...(message ? { message } : {}) });
-              }),
-            release: Effect.sync(() => {
-              released = true;
-            }),
-          }),
-      });
-      const threadId = ThreadId.make("pi-int-herdr-lifecycle");
-      const opened = yield* Deferred.make<ApprovalRequestId>();
-      const completed = yield* Deferred.make<void>();
-      const fiber = yield* adapter.streamEvents.pipe(
-        Stream.filter((event) => event.threadId === threadId),
-        Stream.runForEach((event) => {
-          if (event.type === "request.opened" && event.requestId !== undefined) {
-            return Deferred.succeed(opened, ApprovalRequestId.make(String(event.requestId))).pipe(
-              Effect.ignore,
-            );
-          }
-          if (event.type === "turn.completed") {
-            return Deferred.succeed(completed, undefined).pipe(Effect.ignore);
-          }
-          return Effect.void;
-        }),
-        Effect.forkChild,
-      );
-
-      yield* adapter.startSession({
-        threadId,
-        provider: PI,
-        cwd: process.cwd(),
-        runtimeMode: "full-access",
-      });
-      yield* adapter.sendTurn({ threadId, input: "edit file", attachments: [] });
-      yield* fake.pushExtensionUI({
-        type: "extension_ui_request",
-        id: "ui-herdr",
-        method: "confirm",
-        title: "bash",
-        message: "ls -la",
-      } as RpcExtensionUIRequest);
-
-      const requestId = yield* Deferred.await(opened);
-      expect(states).toEqual([{ state: "working" }, { state: "blocked", message: "bash" }]);
-
-      yield* adapter.respondToRequest(threadId, requestId, "accept");
-      expect(states.at(-1)).toEqual({ state: "working" });
-
-      yield* fake.pushEvent({ type: "agent_end" } as AgentSessionEvent);
-      yield* Deferred.await(completed);
-      expect(states.at(-1)).toEqual({ state: "idle" });
-
-      yield* adapter.stopSession(threadId);
-      expect(released).toBe(true);
-      yield* Fiber.interrupt(fiber);
     }),
   );
 

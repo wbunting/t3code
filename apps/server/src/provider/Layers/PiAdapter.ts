@@ -36,7 +36,6 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { ServerConfig } from "../../config.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
-import * as ProcessRunner from "../../processRunner.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -46,12 +45,6 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import type { PiAdapterShape } from "../Services/PiAdapter.ts";
-import {
-  type HerdrAgentReporter,
-  type HerdrAgentReporterError,
-  type HerdrAgentState,
-  makeHerdrAgentReporter,
-} from "./HerdrAgentReporter.ts";
 import {
   type AgentSessionEvent,
   buildPiTurnCommand,
@@ -143,7 +136,6 @@ interface PiSessionContext {
   session: ProviderSession;
   readonly sessionScope: Scope.Closeable;
   readonly transport: PiRpcTransport;
-  herdrReporter: HerdrAgentReporter | undefined;
   notificationFiber: Fiber.Fiber<void, never> | undefined;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
@@ -290,12 +282,6 @@ export interface PiAdapterLiveOptions {
     PlatformError.PlatformError,
     Scope.Scope | ChildProcessSpawner.ChildProcessSpawner
   >;
-  readonly createHerdrAgentReporter?: (input: {
-    readonly cwd: string;
-    readonly threadId: ThreadId;
-    readonly env: NodeJS.ProcessEnv;
-    readonly scope: Scope.Scope;
-  }) => Effect.Effect<HerdrAgentReporter | undefined, HerdrAgentReporterError>;
 }
 
 export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
@@ -306,17 +292,8 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
   const serverConfig = yield* ServerConfig;
   const crypto = yield* Crypto.Crypto;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const processRunner = yield* ProcessRunner.make();
   const fileSystem = yield* FileSystem.FileSystem;
   const baseEnvironment = options?.environment ?? process.env;
-  const createHerdrAgentReporter =
-    options?.createHerdrAgentReporter ??
-    ((input: {
-      readonly cwd: string;
-      readonly threadId: ThreadId;
-      readonly env: NodeJS.ProcessEnv;
-      readonly scope: Scope.Scope;
-    }) => makeHerdrAgentReporter({ ...input, runner: processRunner }));
 
   let approvalExtensionPath: string | undefined;
   for (const candidate of APPROVAL_EXTENSION_CANDIDATES) {
@@ -345,35 +322,6 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
     payload: unknown,
   ) => ({ raw: { source, method, payload } }) as const;
 
-  const reportHerdrState = (
-    context: PiSessionContext,
-    state: HerdrAgentState,
-    message?: string,
-  ): Effect.Effect<void> =>
-    context.herdrReporter === undefined
-      ? Effect.void
-      : context.herdrReporter.report(state, message).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("herdr.pi.lifecycle-report.failed", {
-              cause,
-              state,
-              threadId: context.session.threadId,
-            }),
-          ),
-        );
-
-  const releaseHerdrAgent = (context: PiSessionContext): Effect.Effect<void> =>
-    context.herdrReporter === undefined
-      ? Effect.void
-      : context.herdrReporter.release.pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("herdr.pi.lifecycle-release.failed", {
-              cause,
-              threadId: context.session.threadId,
-            }),
-          ),
-        );
-
   const completeTurn = (
     context: PiSessionContext,
     state: "completed" | "failed" | "interrupted" | "cancelled",
@@ -388,7 +336,6 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
       const updatedAt = yield* nowIso;
       const { activeTurnId: _activeTurnId, ...readySession } = context.session;
       context.session = { ...readySession, status: "ready", updatedAt };
-      yield* reportHerdrState(context, "idle");
 
       const stamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
@@ -416,7 +363,6 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
         activeTurnId: turnId,
         updatedAt: startedAt,
       };
-      yield* reportHerdrState(context, "working");
       const stamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
         ...stamp,
@@ -631,7 +577,6 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
         const detail =
           request.message.length > 0 ? `${request.title}\n${request.message}` : request.title;
         context.pendingApprovals.set(requestId, { piId: request.id, requestType });
-        yield* reportHerdrState(context, "blocked", request.title || "Approval required");
         yield* offerRuntimeEvent({
           ...stamp,
           provider: PROVIDER,
@@ -687,8 +632,6 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
         method: request.method,
         ...(numberedOptions ? { numberedOptions } : {}),
       });
-
-      yield* reportHerdrState(context, "blocked", question.question);
 
       yield* offerRuntimeEvent({
         ...stamp,
@@ -759,8 +702,6 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
       }
 
       yield* cancelPendingExtensionRequests(context);
-
-      yield* releaseHerdrAgent(context);
 
       if (context.notificationFiber) yield* Fiber.interrupt(context.notificationFiber);
 
@@ -990,7 +931,6 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
       session,
       sessionScope,
       transport,
-      herdrReporter: undefined,
       notificationFiber: undefined,
       pendingApprovals: new Map(),
       pendingUserInputs: new Map(),
@@ -1057,21 +997,6 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
         detail: "Pi RPC process exited during session startup.",
       });
     }
-
-    context.herdrReporter = yield* createHerdrAgentReporter({
-      cwd,
-      threadId,
-      env: processEnv,
-      scope: sessionScope,
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("herdr.pi.registration.failed", {
-          cause,
-          cwd,
-          threadId,
-        }).pipe(Effect.as(undefined)),
-      ),
-    );
 
     const startedStamp = yield* makeEventStamp();
     yield* offerRuntimeEvent({
@@ -1212,7 +1137,6 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
       const response: RpcExtensionUIResponse = buildPiApprovalResponse(pending.piId, decision);
       yield* context.transport.writeExtensionResponse(response);
       context.pendingApprovals.delete(requestId);
-      yield* reportHerdrState(context, context.turnState ? "working" : "idle");
 
       const stamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
@@ -1243,7 +1167,6 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
 
       yield* context.transport.writeExtensionResponse(response);
       context.pendingUserInputs.delete(requestId);
-      yield* reportHerdrState(context, context.turnState ? "working" : "idle");
 
       const stamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
