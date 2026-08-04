@@ -11,6 +11,8 @@ Set these variables on the T3 server running on Hydra:
 T3CODE_WORKTREE_HELPER=/home/will/.local/bin/worktree-helper
 T3CODE_WORKTREE_HELPER_TIMEOUT_MS=900000
 T3CODE_WORKTREE_HELPER_BACKGROUND_PROVISIONING=1
+T3CODE_HERDR_AGENT_REPORTING=1
+T3CODE_HERDR_COMMAND=/usr/bin/herdr
 ```
 
 For a new branch, T3 runs `worktree-helper new <branch>`. For an existing branch, it runs
@@ -26,6 +28,14 @@ silently creating the worktree somewhere else. Provisioning retries reuse the sa
 recorded worker for a repository/branch key. Its systemd journal contains the durable progress
 log, while T3 logs structured registration, enqueue, completion, failure, and interruption
 events with the branch and helper phase.
+
+With agent reporting enabled, a T3-owned Pi RPC session claims the otherwise-empty Herdr pane
+whose working directory matches the thread worktree. Herdr displays it as `Pi · T3`, including
+working, done, and needs-input lifecycle states. T3 continues to own the `pi --mode rpc` child
+and its raw JSONL streams; Herdr is the presentation and navigation surface, not the transport.
+The lifecycle integration is best-effort: a missing pane or unavailable Herdr server is logged
+without interrupting the Pi session. `T3CODE_HERDR_COMMAND` defaults to `herdr`, and
+`T3CODE_HERDR_AGENT_REPORTING_TIMEOUT_MS` defaults to 5000 milliseconds.
 
 ## Hydra Pool MCP for Pi
 
