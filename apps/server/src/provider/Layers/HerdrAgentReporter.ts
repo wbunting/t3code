@@ -12,6 +12,7 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_BYTES = 1_000_000;
 const SOURCE_PREFIX = "t3code:pi:";
+const DISPLAY_AGENT = "Pi · T3";
 
 export type HerdrAgentState = "idle" | "working" | "blocked";
 
@@ -42,6 +43,7 @@ const HerdrPane = Schema.Struct({
   foreground_cwd: Schema.optional(Schema.String),
   focused: Schema.optional(Schema.Boolean),
   agent: Schema.optional(Schema.String),
+  display_agent: Schema.optional(Schema.String),
   agent_session: Schema.optional(
     Schema.Struct({
       source: Schema.optional(Schema.String),
@@ -111,7 +113,9 @@ export function selectHerdrPane(
     .filter(
       (pane) =>
         pane.agent === undefined ||
-        (pane.agent === "pi" && pane.agent_session?.source?.startsWith(SOURCE_PREFIX) === true),
+        (pane.agent === "pi" &&
+          (pane.display_agent === DISPLAY_AGENT ||
+            pane.agent_session?.source?.startsWith(SOURCE_PREFIX) === true)),
     )
     .sort((left, right) => {
       const focusOrder = Number(Boolean(right.focused)) - Number(Boolean(left.focused));
@@ -233,7 +237,7 @@ export const makeHerdrAgentReporter = Effect.fn("HerdrAgentReporter.make")(funct
     "--applies-to-source",
     source,
     "--display-agent",
-    "Pi · T3",
+    DISPLAY_AGENT,
     "--state-label",
     "idle=done",
     "--state-label",

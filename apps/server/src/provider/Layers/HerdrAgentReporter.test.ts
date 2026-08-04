@@ -67,7 +67,7 @@ it("reclaims a stale T3 Pi pane after a server restart", () => {
           pane_id: "w1:p1",
           cwd: "/worktrees/feature",
           agent: "pi",
-          agent_session: { source: "t3code:pi:old-thread" },
+          display_agent: "Pi · T3",
         },
       ],
       "/worktrees/feature",
