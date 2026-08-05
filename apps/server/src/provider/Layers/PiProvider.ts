@@ -2,6 +2,8 @@ import {
   type ModelCapabilities,
   type PiSettings,
   type ServerProviderModel,
+  type ServerProviderSkill,
+  type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import * as DateTime from "effect/DateTime";
@@ -20,6 +22,7 @@ import {
 } from "../providerSnapshot.ts";
 import {
   extractAvailableModels,
+  extractPiProviderCommands,
   makePiRpcTransport,
   piModelInfoToServerModel,
 } from "./PiRpcClient.ts";
@@ -33,11 +36,11 @@ const PI_PRESENTATION = {
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({ optionDescriptors: [] });
 
 // Outer hard wall on the whole discovery effect. `transport.request` has its own
-// per-request timeout (see PI_MODEL_DISCOVERY_REQUEST_TIMEOUT_MS below); keep the
+// per-request timeout (see PI_CAPABILITY_DISCOVERY_REQUEST_TIMEOUT_MS below); keep the
 // outer wall strictly larger so the inner request owns cleanup/logging and the
 // outer only fires as a defensive backstop.
-const PI_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
-const PI_MODEL_DISCOVERY_REQUEST_TIMEOUT_MS = 14_000;
+const PI_CAPABILITY_DISCOVERY_TIMEOUT_MS = 15_000;
+const PI_CAPABILITY_DISCOVERY_REQUEST_TIMEOUT_MS = 14_000;
 // Pi can spend several seconds loading extensions before printing its version.
 // Keep this provider-specific probe above the shared 4-second CLI default.
 const PI_VERSION_PROBE_TIMEOUT_MS = 15_000;
@@ -54,8 +57,20 @@ const runPiVersion = (piSettings: PiSettings, environment: NodeJS.ProcessEnv) =>
     return spawnAndCollect(binaryPath, command);
   });
 
-/** Discover models via a short-lived `pi --mode rpc` session; `[]` on any failure. */
-export const discoverPiModelsViaRpc = Effect.fn("discoverPiModelsViaRpc")(
+interface PiDiscoveredCapabilities {
+  readonly models: ReadonlyArray<ServerProviderModel>;
+  readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
+  readonly skills: ReadonlyArray<ServerProviderSkill>;
+}
+
+const EMPTY_DISCOVERED_CAPABILITIES: PiDiscoveredCapabilities = {
+  models: [],
+  slashCommands: [],
+  skills: [],
+};
+
+/** Discover models and commands via a short-lived `pi --mode rpc` session. */
+export const discoverPiCapabilitiesViaRpc = Effect.fn("discoverPiCapabilitiesViaRpc")(
   function* (piSettings: PiSettings, cwd: string, environment: NodeJS.ProcessEnv) {
     const transport = yield* makePiRpcTransport({
       binaryPath: piSettings.binaryPath || "pi",
@@ -64,19 +79,44 @@ export const discoverPiModelsViaRpc = Effect.fn("discoverPiModelsViaRpc")(
       env: environment,
       onExit: Effect.void,
     });
-    const response = yield* transport.request(
-      { type: "get_available_models" },
-      "pi-model-discovery",
-      PI_MODEL_DISCOVERY_REQUEST_TIMEOUT_MS,
+    const [modelsResponse, commandsResponse] = yield* Effect.all(
+      [
+        transport
+          .request(
+            { type: "get_available_models" },
+            "pi-model-discovery",
+            PI_CAPABILITY_DISCOVERY_REQUEST_TIMEOUT_MS,
+          )
+          .pipe(Effect.option),
+        transport
+          .request(
+            { type: "get_commands" },
+            "pi-command-discovery",
+            PI_CAPABILITY_DISCOVERY_REQUEST_TIMEOUT_MS,
+          )
+          .pipe(Effect.option),
+      ],
+      { concurrency: "unbounded" },
     );
-    return extractAvailableModels(response).map(piModelInfoToServerModel);
+    const commands = Option.match(commandsResponse, {
+      onNone: () => EMPTY_DISCOVERED_CAPABILITIES,
+      onSome: extractPiProviderCommands,
+    });
+    return {
+      models: Option.match(modelsResponse, {
+        onNone: () => [],
+        onSome: (response) => extractAvailableModels(response).map(piModelInfoToServerModel),
+      }),
+      slashCommands: commands.slashCommands,
+      skills: commands.skills,
+    } satisfies PiDiscoveredCapabilities;
   },
   Effect.scoped,
-  Effect.timeoutOption(PI_MODEL_DISCOVERY_TIMEOUT_MS),
-  Effect.map(Option.getOrElse(() => [] as ReadonlyArray<ServerProviderModel>)),
+  Effect.timeoutOption(PI_CAPABILITY_DISCOVERY_TIMEOUT_MS),
+  Effect.map(Option.getOrElse(() => EMPTY_DISCOVERED_CAPABILITIES)),
   Effect.catchCause((cause) =>
-    Effect.logWarning("Pi model discovery failed", { cause }).pipe(
-      Effect.as([] as ReadonlyArray<ServerProviderModel>),
+    Effect.logWarning("Pi capability discovery failed", { cause }).pipe(
+      Effect.as(EMPTY_DISCOVERED_CAPABILITIES),
     ),
   ),
 );
@@ -208,8 +248,8 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
     });
   }
 
-  const discovered = yield* discoverPiModelsViaRpc(piSettings, cwd, environment);
-  const models = modelsFromSettings(piSettings, discovered);
+  const discovered = yield* discoverPiCapabilitiesViaRpc(piSettings, cwd, environment);
+  const models = modelsFromSettings(piSettings, discovered.models);
 
   // no auth query in pi; get_available_models only lists once a key is configured in ~/.pi/agent
   const authenticated = models.length > 0;
@@ -219,6 +259,8 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
     enabled: piSettings.enabled,
     checkedAt,
     models,
+    slashCommands: discovered.slashCommands,
+    skills: discovered.skills,
     probe: {
       installed: true,
       version: parsedVersion,

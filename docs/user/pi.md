@@ -66,6 +66,16 @@ If discovery fails or times out, T3 Code falls back to your custom models only. 
 models with the Pi CLI (`pi config`) or by editing `~/.pi/agent/models.json`, then refresh
 provider status in Settings.
 
+## Commands And Skills
+
+T3 Code asks Pi for its available extension commands, prompt templates, and skills during
+the same provider check. Type `/` in the composer to browse Pi commands such as `/use`, or
+type `$` to browse the skills loaded by your configured Pi runtime. This includes user,
+project, package, and custom-path skills that Pi reports for the environment.
+
+After adding or changing a Pi command or skill, refresh the Pi provider status in Settings
+to update the composer menus.
+
 ## How Tool Approval Works
 
 Pi has no built-in per-tool approval prompt, so T3 Code adds one with a small bundled Pi

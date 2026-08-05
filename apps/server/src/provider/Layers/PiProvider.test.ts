@@ -10,12 +10,19 @@ import { buildInitialPiProviderSnapshot, checkPiProviderStatus } from "./PiProvi
 
 const decodePiSettings = Schema.decodeSync(PiSettings);
 
-// fake `pi`: `--version` exits 0; anything else returns empty get_available_models
+// fake `pi`: `--version` exits 0; RPC mode answers capability discovery requests
 const HEALTHY_PI_SCRIPT = [
   "#!/bin/sh",
   'case "$1" in',
   '  --version) printf "pi 0.80.2\\n"; exit 0 ;;',
-  '  *) printf \'{"type":"response","command":"get_available_models","id":"pi-model-discovery","success":true,"data":{"models":[]}}\\n\'; exit 0 ;;',
+  "  *)",
+  "    while IFS= read -r line; do",
+  '      case "$line" in',
+  '        *get_available_models*) printf \'{"type":"response","command":"get_available_models","id":"pi-model-discovery","success":true,"data":{"models":[]}}\\n\' ;;',
+  '        *get_commands*) printf \'{"type":"response","command":"get_commands","id":"pi-command-discovery","success":true,"data":{"commands":[]}}\\n\' ;;',
+  "      esac",
+  "    done",
+  "    ;;",
   "esac",
   "",
 ].join("\n");
@@ -127,6 +134,79 @@ it.layer(NodeServices.layer)("checkPiProviderStatus", (it) => {
       );
       expect(snapshot.status).toBe("ready");
       expect(snapshot.auth.status).toBe("authenticated");
+    }),
+  );
+
+  it.effect("publishes Pi slash commands and skills discovered through RPC", () =>
+    Effect.gen(function* () {
+      const snapshot = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-pi-commands-" });
+          const piPath = path.join(dir, "pi");
+          const skillPath = path.join(dir, ".agents", "skills", "review-pr", "SKILL.md");
+          const commands = [
+            {
+              name: "use",
+              description: "Switch workspace context",
+              source: "extension",
+              sourceInfo: { path: path.join(dir, "use.ts"), scope: "user" },
+            },
+            {
+              name: "skill:review-pr",
+              description: "Review a pull request",
+              source: "skill",
+              sourceInfo: { path: skillPath, scope: "project" },
+            },
+          ];
+          // @effect-diagnostics-next-line preferSchemaOverJson:off - Serialize a JSONL subprocess fixture.
+          const commandsResponse = JSON.stringify({
+            type: "response",
+            command: "get_commands",
+            id: "pi-command-discovery",
+            success: true,
+            data: { commands },
+          });
+          yield* fs.writeFileString(
+            piPath,
+            [
+              "#!/bin/sh",
+              'case "$1" in',
+              '  --version) printf "pi 0.80.2\\n"; exit 0 ;;',
+              "  *)",
+              "    while IFS= read -r line; do",
+              '      case "$line" in',
+              '        *get_available_models*) printf \'{"type":"response","command":"get_available_models","id":"pi-model-discovery","success":true,"data":{"models":[]}}\\n\' ;;',
+              `        *get_commands*) printf '%s\\n' '${commandsResponse}' ;;`,
+              "      esac",
+              "    done",
+              "    ;;",
+              "esac",
+              "",
+            ].join("\n"),
+          );
+          yield* fs.chmod(piPath, 0o755);
+          return yield* checkPiProviderStatus(
+            decodePiSettings({ enabled: true, binaryPath: piPath, customModels: ["x/y"] }),
+            dir,
+          );
+        }),
+      );
+
+      expect(snapshot.slashCommands).toEqual([
+        { name: "use", description: "Switch workspace context" },
+        { name: "skill:review-pr", description: "Review a pull request" },
+      ]);
+      expect(snapshot.skills).toEqual([
+        {
+          name: "review-pr",
+          description: "Review a pull request",
+          path: expect.stringContaining("/.agents/skills/review-pr/SKILL.md"),
+          scope: "project",
+          enabled: true,
+        },
+      ]);
     }),
   );
 
