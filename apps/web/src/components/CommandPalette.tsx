@@ -29,6 +29,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
+  CopyIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
@@ -56,6 +57,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useCopyThreadId } from "../hooks/useCopyThreadId";
 import { useClientSettings } from "../hooks/useSettings";
 import { readLocalApi } from "../localApi";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
@@ -552,6 +554,7 @@ function OpenCommandPaletteDialog(props: {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
+  const copyThreadId = useCopyThreadId();
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
@@ -1390,6 +1393,21 @@ function OpenCommandPaletteDialog(props: {
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
+    });
+  }
+
+  if (activeThread) {
+    actionItems.push({
+      kind: "action",
+      value: "action:copy-thread-id",
+      searchTerms: ["copy thread id", "chat id", "conversation id", "reference thread"],
+      title: "Copy current thread ID",
+      description: activeThread.id,
+      icon: <CopyIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "thread.copyId",
+      run: async () => {
+        copyThreadId(activeThread.id);
+      },
     });
   }
 

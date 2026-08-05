@@ -11,6 +11,7 @@ import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useCopyThreadId } from "../hooks/useCopyThreadId";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -27,6 +28,7 @@ function ChatRouteGlobalShortcuts() {
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
+  const copyThreadId = useCopyThreadId();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const sidebarV2Enabled = useSidebarV2Enabled();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
@@ -108,6 +110,23 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
+      if (command === "thread.copyId") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!activeThread) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "info",
+              title: "Thread ID unavailable",
+              description: "Send a message to create this thread before copying its ID.",
+            }),
+          );
+          return;
+        }
+        copyThreadId(activeThread.id);
+        return;
+      }
+
       if (command === "preview.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -160,6 +179,7 @@ function ChatRouteGlobalShortcuts() {
     activeDraftThread,
     activeThread,
     clearSelection,
+    copyThreadId,
     handleNewThread,
     keybindings,
     defaultProjectRef,

@@ -95,6 +95,12 @@ it.effect("parses keybinding rules", () =>
       command: "thread.previous",
     });
     assert.strictEqual(parsedThreadPrevious.command, "thread.previous");
+
+    const parsedThreadCopyId = yield* decode(KeybindingRule, {
+      key: "mod+shift+c",
+      command: "thread.copyId",
+    });
+    assert.strictEqual(parsedThreadCopyId.command, "thread.copyId");
   }),
 );
 
