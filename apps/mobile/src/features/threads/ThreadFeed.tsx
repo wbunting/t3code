@@ -104,6 +104,10 @@ import {
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 import { useAssetUrl } from "../../state/assets";
 import { resolveWorkspaceRelativeFilePath } from "../files/filePath";
+import {
+  markdownContainsWorkspaceImage,
+  resolveMarkdownWorkspaceImageResource,
+} from "./markdown-images";
 
 const MESSAGE_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
@@ -189,6 +193,45 @@ function MessageAttachmentImage(props: {
     <TouchableOpacity activeOpacity={0.7} onPress={() => props.onPressImage(uri)}>
       <Image source={{ uri }} className={props.className} resizeMode="cover" />
     </TouchableOpacity>
+  );
+}
+
+function MarkdownWorkspaceImage(props: {
+  readonly alt?: string;
+  readonly environmentId: EnvironmentId;
+  readonly onPressImage: (uri: string) => void;
+  readonly src: string;
+  readonly threadId: ThreadId;
+  readonly title?: string;
+  readonly workspaceRoot?: string | null;
+}) {
+  const resource = resolveMarkdownWorkspaceImageResource({
+    src: props.src,
+    workspaceRoot: props.workspaceRoot,
+    threadId: props.threadId,
+  });
+  const assetUrl = useAssetUrl(props.environmentId, resource);
+  const uri = resource ? assetUrl : props.src;
+  const label = props.alt ?? props.title;
+
+  return (
+    <View className="my-2 gap-1.5">
+      {uri ? (
+        <TouchableOpacity activeOpacity={0.7} onPress={() => props.onPressImage(uri)}>
+          <Image
+            source={{ uri }}
+            accessibilityLabel={label}
+            resizeMode="contain"
+            className="aspect-video w-full rounded-[10px] bg-neutral-200 dark:bg-neutral-800"
+          />
+        </TouchableOpacity>
+      ) : (
+        <View className="aspect-video w-full items-center justify-center rounded-[10px] bg-neutral-200 dark:bg-neutral-800">
+          <ActivityIndicator />
+        </View>
+      )}
+      {label ? <Text className="text-center text-xs text-foreground-muted">{label}</Text> : null}
+    </View>
   );
 }
 
@@ -446,7 +489,15 @@ function useReviewCommentColors(): ReviewCommentColors {
   );
 }
 
-function useMarkdownStyles(onLinkPress: (href: string) => void): MarkdownStyleSets {
+function useMarkdownStyles(
+  onLinkPress: (href: string) => void,
+  imageContext: {
+    readonly environmentId: EnvironmentId;
+    readonly onPressImage: (uri: string) => void;
+    readonly threadId: ThreadId;
+    readonly workspaceRoot?: string | null;
+  },
+): MarkdownStyleSets {
   const colorScheme = useColorScheme();
   const { appearance } = useAppearancePreferences();
   const markdownFontSizes = useMemo(
@@ -576,6 +627,17 @@ function useMarkdownStyles(onLinkPress: (href: string) => void): MarkdownStyleSe
       preserveSoftBreaks: boolean,
       highlightCode: boolean,
     ): CustomRenderers => ({
+      image: ({ url = "", alt, title }) => (
+        <MarkdownWorkspaceImage
+          src={url}
+          alt={alt}
+          title={title}
+          environmentId={imageContext.environmentId}
+          threadId={imageContext.threadId}
+          workspaceRoot={imageContext.workspaceRoot}
+          onPressImage={imageContext.onPressImage}
+        />
+      ),
       link: ({ children, href = "" }) => {
         const presentation = resolveMarkdownLinkPresentation(href);
         if (presentation.kind === "file") {
@@ -808,6 +870,10 @@ function useMarkdownStyles(onLinkPress: (href: string) => void): MarkdownStyleSe
     colors,
     iconSubtleColor,
     inlineSkillForeground,
+    imageContext.environmentId,
+    imageContext.onPressImage,
+    imageContext.threadId,
+    imageContext.workspaceRoot,
     markdownFontSizes,
     nativeMarkdownTypography,
     onLinkPress,
@@ -817,9 +883,44 @@ function useMarkdownStyles(onLinkPress: (href: string) => void): MarkdownStyleSe
   ]);
 }
 
+function AssistantMessageMarkdown(props: {
+  readonly markdown: string;
+  readonly markdownStyles: MarkdownStyleSet;
+  readonly onLinkPress: (href: string) => void;
+  readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
+  readonly workspaceRoot?: string | null;
+}) {
+  const requiresSignedWorkspaceImage = useMemo(
+    () => markdownContainsWorkspaceImage(props.markdown, props.workspaceRoot),
+    [props.markdown, props.workspaceRoot],
+  );
+
+  if (hasNativeSelectableMarkdownText() && !requiresSignedWorkspaceImage) {
+    return (
+      <SelectableMarkdownText
+        markdown={props.markdown}
+        skills={props.skills}
+        textStyle={props.markdownStyles.nativeTextStyle}
+        onLinkPress={props.onLinkPress}
+      />
+    );
+  }
+
+  return (
+    <Markdown
+      options={{ gfm: true }}
+      renderers={props.markdownStyles.renderers}
+      styles={props.markdownStyles.styles}
+      theme={props.markdownStyles.theme}
+    >
+      {props.markdown}
+    </Markdown>
+  );
+}
+
 function renderFeedEntry(
   info: { item: ThreadFeedEntry; index: number },
-  props: Pick<ThreadFeedProps, "environmentId" | "skills"> & {
+  props: Pick<ThreadFeedProps, "environmentId" | "skills" | "workspaceRoot"> & {
     readonly copiedRowId: string | null;
     readonly expandedWorkRows: Record<string, boolean>;
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
@@ -963,23 +1064,13 @@ function renderFeedEntry(
         {...(enterAnimated ? { entering: FadeIn.duration(220) } : {})}
       >
         {message.text.trim().length > 0 ? (
-          hasNativeSelectableMarkdownText() ? (
-            <SelectableMarkdownText
-              markdown={message.text}
-              skills={props.skills}
-              textStyle={styles.nativeTextStyle}
-              onLinkPress={props.onMarkdownLinkPress}
-            />
-          ) : (
-            <Markdown
-              options={{ gfm: true }}
-              renderers={styles.renderers}
-              styles={styles.styles}
-              theme={styles.theme}
-            >
-              {message.text}
-            </Markdown>
-          )
+          <AssistantMessageMarkdown
+            markdown={message.text}
+            markdownStyles={styles}
+            skills={props.skills}
+            workspaceRoot={props.workspaceRoot}
+            onLinkPress={props.onMarkdownLinkPress}
+          />
         ) : null}
         {attachments.map((attachment) => {
           return (
@@ -1374,6 +1465,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
 
   const iconSubtleColor = useThemeColor("--color-icon-subtle");
   const userBubbleColor = useThemeColor("--color-user-bubble");
+  const onPressImage = useCallback((uri: string, headers?: Record<string, string>) => {
+    setExpandedImage({ uri, headers });
+  }, []);
   const onMarkdownLinkPress = useCallback(
     (href: string) => {
       const presentation = resolveMarkdownLinkPresentation(href);
@@ -1400,7 +1494,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     },
     [props.environmentId, props.threadId, props.workspaceRoot, navigation],
   );
-  const markdownStyles = useMarkdownStyles(onMarkdownLinkPress);
+  const markdownStyles = useMarkdownStyles(onMarkdownLinkPress, {
+    environmentId: props.environmentId,
+    threadId: props.threadId,
+    workspaceRoot: props.workspaceRoot,
+    onPressImage,
+  });
   const reviewCommentColors = useReviewCommentColors();
   // LegendList does not invalidate visible rows when only the renderItem closure changes.
   // Keep row-local interaction props in extraData so disclosures and copy feedback repaint.
@@ -1692,10 +1791,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     [suspendEndScrollMaintenanceForDisclosure],
   );
 
-  const onPressImage = useCallback((uri: string, headers?: Record<string, string>) => {
-    setExpandedImage({ uri, headers });
-  }, []);
-
   // Rows whose height is known before they ever render. Without this, every
   // row above the viewport is assumed to be estimatedItemSize tall, and
   // scrolling up through unmeasured content corrects each row's height as it
@@ -1732,6 +1827,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     (info: { item: ThreadFeedEntry; index: number }) =>
       renderFeedEntry(info, {
         environmentId: props.environmentId,
+        workspaceRoot: props.workspaceRoot,
         copiedRowId,
         expandedWorkRows,
         terminalAssistantMessageIds,
@@ -1769,6 +1865,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkRow,
       props.environmentId,
       props.skills,
+      props.workspaceRoot,
     ],
   );
 

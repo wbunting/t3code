@@ -8,7 +8,7 @@ import {
   Minimize2Icon,
   WrapTextIcon,
 } from "lucide-react";
-import type { ScopedThreadRef, ServerProviderSkill } from "@t3tools/contracts";
+import type { AssetResource, ScopedThreadRef, ServerProviderSkill } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -20,6 +20,7 @@ import React, {
   Children,
   Suspense,
   type ClipboardEvent as ReactClipboardEvent,
+  type ComponentPropsWithoutRef,
   type MouseEvent as ReactMouseEvent,
   isValidElement,
   use,
@@ -74,11 +75,13 @@ import {
   type MarkdownFileLinkMeta,
 } from "../markdown-links";
 import { readLocalApi } from "../localApi";
+import { resolveMarkdownWorkspaceImageResource } from "../markdown-images";
 import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useActiveEnvironmentId } from "../state/entities";
 import { serverEnvironment } from "../state/server";
 import { assetEnvironment } from "../state/assets";
+import { useAssetUrlState } from "../assets/assetUrls";
 import { usePreparedConnection } from "../state/session";
 import { previewEnvironment } from "../state/preview";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -102,6 +105,36 @@ interface ChatMarkdownProps {
   className?: string;
   /** Treat single newlines as hard breaks — chat-style user input. */
   lineBreaks?: boolean;
+}
+
+function SignedWorkspaceMarkdownImage({
+  resource,
+  environmentId,
+  alt,
+  className,
+  ...props
+}: Omit<ComponentPropsWithoutRef<"img">, "resource" | "src"> & {
+  readonly resource: AssetResource;
+  readonly environmentId: ScopedThreadRef["environmentId"];
+}) {
+  const assetUrl = useAssetUrlState(environmentId, resource);
+  const imageClassName = cn("my-3 max-h-[32rem] max-w-full rounded-lg object-contain", className);
+
+  if (assetUrl._tag === "Success") {
+    return <img {...props} src={assetUrl.url} alt={alt} className={imageClassName} />;
+  }
+
+  return (
+    <span
+      className={cn(
+        imageClassName,
+        "flex min-h-24 items-center justify-center bg-muted px-4 py-3 text-xs text-muted-foreground",
+      )}
+      aria-busy={assetUrl._tag === "Loading"}
+    >
+      {assetUrl._tag === "Loading" ? `Loading ${alt || "image"}…` : alt || "Image unavailable"}
+    </span>
+  );
 }
 
 const EMPTY_MARKDOWN_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
@@ -1524,6 +1557,31 @@ function ChatMarkdown({
           fileLinkMeta,
           `[${fileLinkMeta.basename}](${normalizedHref})`,
           props.className,
+        );
+      },
+      img({ node: _node, src, alt, className: imageClassName, ...props }) {
+        const resource = resolveMarkdownWorkspaceImageResource({ src, cwd, threadRef });
+        if (resource && threadRef) {
+          return (
+            <SignedWorkspaceMarkdownImage
+              {...props}
+              resource={resource}
+              environmentId={threadRef.environmentId}
+              alt={alt}
+              className={imageClassName}
+            />
+          );
+        }
+        return (
+          <img
+            {...props}
+            src={src}
+            alt={alt}
+            className={cn(
+              "my-3 max-h-[32rem] max-w-full rounded-lg object-contain",
+              imageClassName,
+            )}
+          />
         );
       },
       code({ node, children, className, ...props }) {
