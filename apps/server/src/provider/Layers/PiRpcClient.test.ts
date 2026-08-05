@@ -9,6 +9,7 @@ import {
   extractAvailableModels,
   extractForkMessages,
   extractLastAssistantText,
+  extractPiProviderCommands,
   extractReasoningTextDelta,
   extractSessionFile,
   parsePiStdoutLine,
@@ -273,6 +274,97 @@ describe("piResponseHasCommand", () => {
         "t3-approval-gate",
       ),
     ).toBe(false);
+  });
+});
+
+describe("extractPiProviderCommands", () => {
+  it("maps Pi commands and skill provenance into the provider snapshot contracts", () => {
+    const result = extractPiProviderCommands(
+      asResponse({
+        type: "response",
+        command: "get_commands",
+        success: true,
+        data: {
+          commands: [
+            {
+              name: "use",
+              description: "Switch workspace context",
+              source: "extension",
+              sourceInfo: {
+                path: "/home/pi/.pi/agent/extensions/use.ts",
+                scope: "user",
+              },
+            },
+            {
+              name: "skill:review-pr",
+              description: "Review a pull request",
+              source: "skill",
+              sourceInfo: {
+                path: "/workspace/.agents/skills/review-pr/SKILL.md",
+                scope: "project",
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(result.slashCommands).toEqual([
+      { name: "use", description: "Switch workspace context" },
+      { name: "skill:review-pr", description: "Review a pull request" },
+    ]);
+    expect(result.skills).toEqual([
+      {
+        name: "review-pr",
+        description: "Review a pull request",
+        path: "/workspace/.agents/skills/review-pr/SKILL.md",
+        scope: "project",
+        enabled: true,
+      },
+    ]);
+  });
+
+  it("accepts legacy top-level skill provenance and skips unusable entries", () => {
+    const result = extractPiProviderCommands(
+      asResponse({
+        type: "response",
+        success: true,
+        data: {
+          commands: [
+            {
+              name: "skill:legacy",
+              source: "skill",
+              path: "/tmp/legacy/SKILL.md",
+              location: "user",
+            },
+            { name: "skill:no-path", source: "skill" },
+            { name: "", source: "extension" },
+          ],
+        },
+      }),
+    );
+
+    expect(result.skills).toEqual([
+      {
+        name: "legacy",
+        path: "/tmp/legacy/SKILL.md",
+        scope: "user",
+        enabled: true,
+      },
+    ]);
+    expect(result.slashCommands.map((command) => command.name)).toEqual([
+      "skill:legacy",
+      "skill:no-path",
+    ]);
+  });
+
+  it("returns empty collections for malformed responses", () => {
+    expect(extractPiProviderCommands(undefined)).toEqual({ slashCommands: [], skills: [] });
+    expect(
+      extractPiProviderCommands(
+        asResponse({ type: "response", success: true, data: { commands: "invalid" } }),
+      ),
+    ).toEqual({ slashCommands: [], skills: [] });
   });
 });
 

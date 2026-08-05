@@ -7,8 +7,13 @@ import type {
   RpcExtensionUIResponse,
   RpcResponse,
 } from "@earendil-works/pi-coding-agent";
-import type { ModelSelection, ServerProviderModel } from "@t3tools/contracts";
-import type { ModelCapabilities } from "@t3tools/contracts";
+import type {
+  ModelCapabilities,
+  ModelSelection,
+  ServerProviderModel,
+  ServerProviderSkill,
+  ServerProviderSlashCommand,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -219,6 +224,62 @@ export function extractAvailableModels(
 ): ReadonlyArray<ModelInfo> {
   const models = piResponseData(response)?.["models"];
   return Array.isArray(models) ? (models as ReadonlyArray<ModelInfo>) : [];
+}
+
+export function extractPiProviderCommands(response: RpcResponse | undefined): {
+  readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
+  readonly skills: ReadonlyArray<ServerProviderSkill>;
+} {
+  const commands = piResponseData(response)?.["commands"];
+  if (!Array.isArray(commands)) {
+    return { slashCommands: [], skills: [] };
+  }
+
+  const slashCommandsByName = new Map<string, ServerProviderSlashCommand>();
+  const skillsByName = new Map<string, ServerProviderSkill>();
+
+  for (const entry of commands) {
+    if (!entry || typeof entry !== "object") continue;
+    const command = entry as Record<string, unknown>;
+    const name = typeof command["name"] === "string" ? command["name"].trim() : "";
+    if (!name) continue;
+
+    const description =
+      typeof command["description"] === "string" ? command["description"].trim() : "";
+    slashCommandsByName.set(name.toLowerCase(), {
+      name,
+      ...(description ? { description } : {}),
+    });
+
+    if (command["source"] !== "skill" || !name.startsWith("skill:")) continue;
+    const skillName = name.slice("skill:".length).trim();
+    if (!skillName) continue;
+
+    const sourceInfo =
+      command["sourceInfo"] && typeof command["sourceInfo"] === "object"
+        ? (command["sourceInfo"] as Record<string, unknown>)
+        : undefined;
+    // Pi's current RPC schema reports provenance under sourceInfo. Keep the
+    // legacy top-level fields as a compatibility fallback for older binaries.
+    const skillPathValue = sourceInfo?.["path"] ?? command["path"];
+    const skillPath = typeof skillPathValue === "string" ? skillPathValue.trim() : "";
+    if (!skillPath) continue;
+    const scopeValue = sourceInfo?.["scope"] ?? command["location"];
+    const scope = typeof scopeValue === "string" ? scopeValue.trim() : "";
+
+    skillsByName.set(skillName.toLowerCase(), {
+      name: skillName,
+      path: skillPath,
+      enabled: true,
+      ...(description ? { description } : {}),
+      ...(scope ? { scope } : {}),
+    });
+  }
+
+  return {
+    slashCommands: [...slashCommandsByName.values()],
+    skills: [...skillsByName.values()].sort((left, right) => left.name.localeCompare(right.name)),
+  };
 }
 
 // approval-gate handshake: the sentinel command's presence confirms the gate loaded
