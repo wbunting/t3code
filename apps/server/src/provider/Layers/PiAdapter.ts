@@ -3,6 +3,7 @@ import * as NodeURL from "node:url";
 
 import {
   ApprovalRequestId,
+  type ChatAttachment,
   type CanonicalItemType,
   type CanonicalRequestType,
   EventId,
@@ -11,6 +12,8 @@ import {
   type ProviderApprovalDecision,
   ProviderDriverKind,
   ProviderInstanceId,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   type ProviderRuntimeEvent,
   type ProviderSendTurnInput,
   type ProviderSession,
@@ -27,6 +30,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -35,7 +39,8 @@ import type * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { ServerConfig } from "../../config.ts";
-import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { createAttachmentId, resolveAttachmentPath } from "../../attachmentStore.ts";
+import { inferImageExtension } from "../../imageMime.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -118,6 +123,7 @@ interface PiTurnState {
   readonly turnId: TurnId;
   readonly startedAt: string;
   readonly items: Array<PiToolItem>;
+  attachmentCount: number;
 }
 
 interface PendingApproval {
@@ -202,6 +208,36 @@ export function summarizePiToolArgs(args: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+interface PiToolResultImage {
+  readonly data: string;
+  readonly mimeType: string;
+}
+
+export function extractPiToolResultImages(result: unknown): ReadonlyArray<PiToolResultImage> {
+  if (!result || typeof result !== "object") return [];
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((block) => {
+    if (!block || typeof block !== "object") return [];
+    const candidate = block as { type?: unknown; data?: unknown; mimeType?: unknown };
+    return candidate.type === "image" &&
+      typeof candidate.data === "string" &&
+      typeof candidate.mimeType === "string"
+      ? [{ data: candidate.data, mimeType: candidate.mimeType }]
+      : [];
+  });
+}
+
+function piToolImageAttachmentName(args: unknown, mimeType: string, index: number): string {
+  const input = args && typeof args === "object" ? (args as Record<string, unknown>) : undefined;
+  const path = input?.["file_path"] ?? input?.["path"] ?? input?.["filePath"];
+  if (typeof path === "string" && path.trim().length > 0) {
+    const basename = path.trim().split(/[\\/]/).at(-1) ?? "";
+    if (basename.length > 0) return basename.slice(-255);
+  }
+  return `pi-image-${index + 1}${inferImageExtension({ mimeType })}`;
 }
 
 // Pi encodes an RPC multi-select as `Title\n1. A\n2. B`
@@ -293,6 +329,7 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
   const crypto = yield* Crypto.Crypto;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const baseEnvironment = options?.environment ?? process.env;
 
   let approvalExtensionPath: string | undefined;
@@ -356,7 +393,7 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
     Effect.gen(function* () {
       const turnId = TurnId.make(yield* nextUuid);
       const startedAt = yield* nowIso;
-      context.turnState = { turnId, startedAt, items: [] };
+      context.turnState = { turnId, startedAt, items: [], attachmentCount: 0 };
       context.session = {
         ...context.session,
         status: "running",
@@ -374,6 +411,80 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
         payload: context.currentModel ? { model: context.currentModel } : {},
       });
       return turnId;
+    });
+
+  const persistPiToolResultImages = (input: {
+    context: PiSessionContext;
+    result: unknown;
+    args: unknown;
+  }): Effect.Effect<ReadonlyArray<ChatAttachment>> =>
+    Effect.gen(function* () {
+      const turnState = input.context.turnState;
+      if (!turnState) return [];
+      const remainingSlots = PROVIDER_SEND_TURN_MAX_ATTACHMENTS - turnState.attachmentCount;
+      if (remainingSlots <= 0) return [];
+
+      const images = extractPiToolResultImages(input.result).slice(0, remainingSlots);
+      const attachments = yield* Effect.forEach(
+        images,
+        (image, index) =>
+          Effect.gen(function* () {
+            const mimeType = image.mimeType.trim().toLowerCase();
+            const base64 = image.data.trim();
+            const maxBase64Chars = Math.ceil((PROVIDER_SEND_TURN_MAX_IMAGE_BYTES * 4) / 3) + 4;
+            if (
+              !mimeType.startsWith("image/") ||
+              base64.length === 0 ||
+              base64.length > maxBase64Chars
+            ) {
+              return undefined;
+            }
+
+            const bytes = Buffer.from(base64, "base64");
+            if (bytes.byteLength === 0 || bytes.byteLength > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+              return undefined;
+            }
+
+            const id = createAttachmentId(input.context.session.threadId);
+            if (!id) return undefined;
+            const attachment = {
+              type: "image" as const,
+              id,
+              name: piToolImageAttachmentName(
+                input.args,
+                mimeType,
+                turnState.attachmentCount + index,
+              ),
+              mimeType,
+              sizeBytes: bytes.byteLength,
+            } satisfies ChatAttachment;
+            const attachmentPath = resolveAttachmentPath({
+              attachmentsDir: serverConfig.attachmentsDir,
+              attachment,
+            });
+            if (!attachmentPath) return undefined;
+
+            const written = yield* fileSystem
+              .makeDirectory(path.dirname(attachmentPath), { recursive: true })
+              .pipe(
+                Effect.andThen(fileSystem.writeFile(attachmentPath, bytes)),
+                Effect.as(true),
+                Effect.catch((cause) =>
+                  Effect.logWarning("pi adapter failed to persist tool-result image", {
+                    threadId: input.context.session.threadId,
+                    cause,
+                  }).pipe(Effect.as(false)),
+                ),
+              );
+            return written ? attachment : undefined;
+          }),
+        { concurrency: 1 },
+      );
+      const persisted = attachments.filter(
+        (attachment): attachment is ChatAttachment => attachment !== undefined,
+      );
+      turnState.attachmentCount += persisted.length;
+      return persisted;
     });
 
   const handlePiEvent = (
@@ -497,6 +608,13 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
             storedItem?.args && typeof storedItem.args === "object"
               ? (storedItem.args as Record<string, unknown>)
               : undefined;
+          const attachments = event.isError
+            ? []
+            : yield* persistPiToolResultImages({
+                context,
+                result: event.result,
+                args: storedItem?.args,
+              });
           yield* offerRuntimeEvent({
             ...base,
             turnId: context.turnState.turnId,
@@ -508,6 +626,7 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
               status: event.isError ? "failed" : "completed",
               ...(detail ? { detail } : {}),
               ...(argsObj ? { data: { toolName: event.toolName, input: argsObj } } : {}),
+              ...(attachments.length > 0 ? { attachments } : {}),
             },
           });
           return;

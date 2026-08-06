@@ -4,6 +4,7 @@ import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
@@ -22,6 +23,7 @@ import {
 } from "@t3tools/contracts";
 
 import { ServerConfig } from "../../config.ts";
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import type { PiAdapterShape } from "../Services/PiAdapter.ts";
 import { makePiAdapter } from "./PiAdapter.ts";
 import type {
@@ -429,6 +431,71 @@ it.layer(HarnessLayer)("PiAdapter integration", (it) => {
       if (started && started.type === "item.started") {
         expect(started.payload.itemType).toBe("command_execution");
       }
+    }),
+  );
+
+  it.effect("promotes Pi tool-result images to persisted assistant attachments", () =>
+    Effect.gen(function* () {
+      const { adapter, fake } = yield* makePiAdapterForTest(enabledSettings());
+      const serverConfig = yield* ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const threadId = ThreadId.make("pi-int-tool-image");
+      const collected = yield* collectEvents(
+        adapter,
+        threadId,
+        (event) => event.type === "item.completed" && event.itemId === "image-tool-1",
+      );
+      yield* adapter.startSession({
+        threadId,
+        provider: PI,
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId, input: "show the screenshot", attachments: [] });
+      yield* fake.pushEvent({ type: "turn_start" } as AgentSessionEvent);
+      yield* fake.pushEvent({
+        type: "tool_execution_start",
+        toolCallId: "image-tool-1",
+        toolName: "view_image",
+        args: { path: "/tmp/chat-success.png" },
+      } as AgentSessionEvent);
+      const imageBytes = Buffer.from("89504e470d0a1a0a", "hex");
+      yield* fake.pushEvent({
+        type: "tool_execution_end",
+        toolCallId: "image-tool-1",
+        toolName: "view_image",
+        result: {
+          content: [
+            { type: "text", text: "Screenshot loaded" },
+            { type: "image", data: imageBytes.toString("base64"), mimeType: "image/png" },
+          ],
+          details: {},
+        },
+        isError: false,
+      } as AgentSessionEvent);
+
+      const events = yield* Fiber.join(collected.fiber).pipe(
+        Effect.flatMap(() => Ref.get(collected.store)),
+      );
+      const completed = events.find(
+        (event) => event.type === "item.completed" && event.itemId === "image-tool-1",
+      );
+      expect(completed?.type).toBe("item.completed");
+      if (!completed || completed.type !== "item.completed") return;
+      const attachment = completed.payload.attachments?.[0];
+      expect(attachment?.name).toBe("chat-success.png");
+      expect(attachment?.mimeType).toBe("image/png");
+      expect(attachment?.sizeBytes).toBe(imageBytes.byteLength);
+      if (!attachment) return;
+      const attachmentPath = resolveAttachmentPath({
+        attachmentsDir: serverConfig.attachmentsDir,
+        attachment,
+      });
+      expect(attachmentPath).not.toBeNull();
+      const persistedBytes = attachmentPath
+        ? yield* fileSystem.readFile(attachmentPath)
+        : undefined;
+      expect(persistedBytes ? Buffer.from(persistedBytes) : undefined).toEqual(imageBytes);
     }),
   );
 

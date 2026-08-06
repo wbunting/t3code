@@ -258,6 +258,35 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.raw?.method).toBe("message_update");
   });
 
+  it("decodes persisted attachments on a completed provider item", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "item.completed",
+      eventId: "event-pi-image-1",
+      provider: "pi",
+      createdAt: "2026-02-28T00:00:00.000Z",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "tool-1",
+      payload: {
+        itemType: "image_view",
+        status: "completed",
+        attachments: [
+          {
+            type: "image",
+            id: "thread-1-00000000-0000-4000-8000-000000000001",
+            name: "screenshot.png",
+            mimeType: "image/png",
+            sizeBytes: 68,
+          },
+        ],
+      },
+    });
+
+    expect(parsed.type).toBe("item.completed");
+    if (parsed.type !== "item.completed") throw new Error("expected item.completed");
+    expect(parsed.payload.attachments?.[0]?.name).toBe("screenshot.png");
+  });
+
   it("decodes a request.opened carrying a pi.rpc.extension-ui raw source", () => {
     const parsed = decodeRuntimeEvent({
       type: "request.opened",
