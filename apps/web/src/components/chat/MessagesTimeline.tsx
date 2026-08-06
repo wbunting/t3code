@@ -891,39 +891,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   return (
     <div className="group flex flex-col items-end gap-1">
       <div className="relative max-w-[80%] rounded-2xl bg-accent p-3">
-        {regularImages.length > 0 && (
-          <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
-            {regularImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
-              <div
-                key={image.id}
-                className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
-              >
-                {image.previewUrl ? (
-                  <button
-                    type="button"
-                    className="h-full w-full cursor-zoom-in"
-                    aria-label={`Preview ${image.name}`}
-                    onClick={() => {
-                      const preview = buildExpandedImagePreview(regularImages, image.id);
-                      if (!preview) return;
-                      ctx.onImageExpand(preview);
-                    }}
-                  >
-                    <img
-                      src={image.previewUrl}
-                      alt={image.name}
-                      className="block h-auto max-h-[220px] w-full object-cover"
-                    />
-                  </button>
-                ) : (
-                  <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
-                    {image.name}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        <MessageImageAttachmentGrid images={regularImages} className="mb-2 max-w-[420px]" />
         {previewAnnotations.map((annotation, index) => (
           <UserMessagePreviewAnnotationCard
             key={annotation.id}
@@ -966,6 +934,51 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MessageImageAttachmentGrid({
+  images,
+  className,
+}: {
+  images: ReadonlyArray<NonNullable<TimelineMessage["attachments"]>[number]>;
+  className?: string;
+}) {
+  const ctx = use(TimelineRowCtx);
+  if (images.length === 0) return null;
+
+  return (
+    <div className={cn("grid grid-cols-2 gap-2", className)}>
+      {images.map((image) => (
+        <div
+          key={image.id}
+          className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
+        >
+          {image.previewUrl ? (
+            <button
+              type="button"
+              className="h-full w-full cursor-zoom-in"
+              aria-label={`Preview ${image.name}`}
+              onClick={() => {
+                const preview = buildExpandedImagePreview(images, image.id);
+                if (!preview) return;
+                ctx.onImageExpand(preview);
+              }}
+            >
+              <img
+                src={image.previewUrl}
+                alt={image.name}
+                className="block h-auto max-h-[220px] w-full object-cover"
+              />
+            </button>
+          ) : (
+            <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
+              {image.name}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -1017,18 +1030,24 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
 
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+  const assistantImages = row.message.attachments ?? [];
+  const messageText =
+    row.message.text ||
+    (row.message.streaming || assistantImages.length > 0 ? "" : "(empty response)");
 
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
-        <ChatMarkdown
-          text={messageText}
-          cwd={ctx.markdownCwd}
-          threadRef={ctx.threadRef ?? undefined}
-          isStreaming={Boolean(row.message.streaming)}
-          skills={ctx.skills}
-        />
+        <MessageImageAttachmentGrid images={assistantImages} className="mb-2 max-w-[640px]" />
+        {messageText ? (
+          <ChatMarkdown
+            text={messageText}
+            cwd={ctx.markdownCwd}
+            threadRef={ctx.threadRef ?? undefined}
+            isStreaming={Boolean(row.message.streaming)}
+            skills={ctx.skills}
+          />
+        ) : null}
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}
