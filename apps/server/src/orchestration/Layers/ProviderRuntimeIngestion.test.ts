@@ -946,6 +946,68 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("persists provider tool-result attachments on the assistant message", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const attachment = {
+      type: "image" as const,
+      id: "thread-1-00000000-0000-4000-8000-000000000001",
+      name: "chat-success.png",
+      mimeType: "image/png",
+      sizeBytes: 68,
+    };
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-attachment-message-delta"),
+      provider: ProviderDriverKind.make("pi"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-attachment"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "Here is the screenshot.",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-image-tool-completed"),
+      provider: ProviderDriverKind.make("pi"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-attachment"),
+      itemId: asItemId("image-tool-1"),
+      payload: {
+        itemType: "image_view",
+        status: "completed",
+        attachments: [attachment],
+      },
+    });
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-attachment-turn-completed"),
+      provider: ProviderDriverKind.make("pi"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-attachment"),
+      payload: { state: "completed" },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.turnId === "turn-attachment" &&
+          !message.streaming &&
+          message.attachments?.[0]?.id === attachment.id,
+      ),
+    );
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.turnId === "turn-attachment",
+    );
+    expect(message?.text).toBe("Here is the screenshot.");
+    expect(message?.attachments).toEqual([attachment]);
+  });
+
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

@@ -296,6 +296,44 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("1 changed file");
   });
 
+  it("renders persisted image attachments on assistant messages", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-assistant-with-images",
+            kind: "message",
+            createdAt: MESSAGE_CREATED_AT,
+            message: {
+              id: MessageId.make("message-assistant-with-images"),
+              role: "assistant",
+              text: "Captured a screenshot.",
+              turnId: TurnId.make("turn-with-images"),
+              createdAt: MESSAGE_CREATED_AT,
+              updatedAt: MESSAGE_CREATED_AT,
+              streaming: false,
+              attachments: [
+                {
+                  type: "image",
+                  id: "assistant-screenshot-1",
+                  name: "pi-image-1.png",
+                  mimeType: "image/png",
+                  sizeBytes: 1024,
+                  previewUrl: "data:image/png;base64,iVBORw0KGgo=",
+                },
+              ],
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Preview pi-image-1.png"');
+    expect(markup).toContain('alt="pi-image-1.png"');
+    expect(markup).toContain('src="data:image/png;base64,iVBORw0KGgo="');
+  });
+
   it("uses LegendList isNearEnd when deciding whether the live edge is visible", async () => {
     const {
       resolveTimelineIsAtEnd,

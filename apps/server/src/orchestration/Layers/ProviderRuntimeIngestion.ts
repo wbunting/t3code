@@ -1,6 +1,7 @@
 import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
+  type ChatAttachment,
   CommandId,
   MessageId,
   type OrchestrationEvent,
@@ -711,6 +712,15 @@ const make = Effect.gen(function* () {
     lookup: () => Effect.succeed(""),
   });
 
+  const bufferedAssistantAttachmentsByMessageId = yield* Cache.make<
+    MessageId,
+    ReadonlyArray<ChatAttachment>
+  >({
+    capacity: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
+    timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
+    lookup: () => Effect.succeed([]),
+  });
+
   const assistantSegmentStateByTurnKey = yield* Cache.make<string, AssistantSegmentState>({
     capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
     timeToLive: TURN_MESSAGE_IDS_BY_TURN_TTL,
@@ -912,6 +922,33 @@ const make = Effect.gen(function* () {
   const clearBufferedAssistantText = (messageId: MessageId) =>
     Cache.invalidate(bufferedAssistantTextByMessageId, messageId);
 
+  const appendBufferedAssistantAttachments = (
+    messageId: MessageId,
+    attachments: ReadonlyArray<ChatAttachment>,
+  ) =>
+    Cache.getOption(bufferedAssistantAttachmentsByMessageId, messageId).pipe(
+      Effect.flatMap((existingAttachments) => {
+        const existing = Option.getOrElse(existingAttachments, () => []);
+        const knownIds = new Set(existing.map((attachment) => attachment.id));
+        return Cache.set(bufferedAssistantAttachmentsByMessageId, messageId, [
+          ...existing,
+          ...attachments.filter((attachment) => !knownIds.has(attachment.id)),
+        ]);
+      }),
+    );
+
+  const takeBufferedAssistantAttachments = (messageId: MessageId) =>
+    Cache.getOption(bufferedAssistantAttachmentsByMessageId, messageId).pipe(
+      Effect.flatMap((existingAttachments) =>
+        Cache.invalidate(bufferedAssistantAttachmentsByMessageId, messageId).pipe(
+          Effect.as(Option.getOrElse(existingAttachments, () => [])),
+        ),
+      ),
+    );
+
+  const clearBufferedAssistantAttachments = (messageId: MessageId) =>
+    Cache.invalidate(bufferedAssistantAttachmentsByMessageId, messageId);
+
   const appendBufferedProposedPlan = (planId: string, delta: string, createdAt: string) =>
     Cache.getOption(bufferedProposedPlanById, planId).pipe(
       Effect.flatMap((existingEntry) => {
@@ -937,7 +974,10 @@ const make = Effect.gen(function* () {
     Cache.invalidate(bufferedProposedPlanById, planId);
 
   const clearAssistantMessageState = (messageId: MessageId) =>
-    clearBufferedAssistantText(messageId);
+    Effect.all([
+      clearBufferedAssistantText(messageId),
+      clearBufferedAssistantAttachments(messageId),
+    ]).pipe(Effect.asVoid);
 
   const flushBufferedAssistantMessage = (input: {
     event: ProviderRuntimeEvent;
@@ -1011,6 +1051,7 @@ const make = Effect.gen(function* () {
   }) =>
     Effect.gen(function* () {
       const bufferedText = yield* takeBufferedAssistantText(input.messageId);
+      const attachments = yield* takeBufferedAssistantAttachments(input.messageId);
       const text =
         bufferedText.length > 0
           ? bufferedText
@@ -1031,12 +1072,13 @@ const make = Effect.gen(function* () {
         });
       }
 
-      if (input.hasProjectedMessage || hasRenderableText) {
+      if (input.hasProjectedMessage || hasRenderableText || attachments.length > 0) {
         yield* orchestrationEngine.dispatch({
           type: "thread.message.assistant.complete",
           commandId: yield* providerCommandId(input.event, input.commandTag),
           threadId: input.threadId,
           messageId: input.messageId,
+          ...(attachments.length > 0 ? { attachments } : {}),
           ...(input.turnId ? { turnId: input.turnId } : {}),
           createdAt: input.createdAt,
         });
@@ -1500,6 +1542,21 @@ const make = Effect.gen(function* () {
             createdAt: now,
           });
         }
+      }
+
+      const assistantAttachments =
+        event.type === "item.completed" ? event.payload.attachments : undefined;
+      if (assistantAttachments && assistantAttachments.length > 0) {
+        const turnId = toTurnId(event.turnId);
+        const assistantMessageId = yield* getOrCreateAssistantMessageId({
+          threadId: thread.id,
+          event,
+          ...(turnId ? { turnId } : {}),
+        });
+        if (turnId) {
+          yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
+        }
+        yield* appendBufferedAssistantAttachments(assistantMessageId, assistantAttachments);
       }
 
       const pauseForUserTurnId =
