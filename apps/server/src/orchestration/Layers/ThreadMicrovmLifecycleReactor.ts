@@ -25,6 +25,23 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const lifecycle = yield* ThreadMicrovmLifecycle;
   const bindings = new Map<string, BindingIntent>();
+  const worktreeOwners = new Map<string, string>();
+
+  const claimWorktree = (intent: BindingIntent): BindingIntent => {
+    const prior = bindings.get(intent.threadId);
+    if (prior && prior.worktreePath !== intent.worktreePath) {
+      if (worktreeOwners.get(prior.worktreePath) === intent.threadId) {
+        worktreeOwners.delete(prior.worktreePath);
+      }
+    }
+    const priorOwner = worktreeOwners.get(intent.worktreePath);
+    if (priorOwner && priorOwner !== intent.threadId) {
+      bindings.delete(priorOwner);
+    }
+    worktreeOwners.set(intent.worktreePath, intent.threadId);
+    bindings.set(intent.threadId, intent);
+    return intent;
+  };
 
   const intentFromEvent = (event: OrchestrationEvent): BindingIntent | undefined => {
     switch (event.type) {
@@ -35,8 +52,7 @@ const make = Effect.gen(function* () {
           worktreePath: event.payload.worktreePath,
           desiredState: "active" as const,
         };
-        bindings.set(intent.threadId, intent);
-        return intent;
+        return claimWorktree(intent);
       }
       case "thread.meta-updated": {
         if (!event.payload.worktreePath) return undefined;
@@ -46,12 +62,12 @@ const make = Effect.gen(function* () {
           worktreePath: event.payload.worktreePath,
           desiredState: current?.desiredState ?? ("active" as const),
         };
-        bindings.set(intent.threadId, intent);
-        return intent;
+        return claimWorktree(intent);
       }
       case "thread.settled": {
         const current = bindings.get(event.payload.threadId);
         if (!current) return undefined;
+        if (worktreeOwners.get(current.worktreePath) !== event.payload.threadId) return undefined;
         const intent = { ...current, desiredState: "released" as const };
         bindings.set(intent.threadId, intent);
         return intent;
