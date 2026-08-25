@@ -40,6 +40,18 @@ describe("VcsCreateWorktreeInput", () => {
 
     expect(parsed.baseRefName).toBe("origin/main");
   });
+
+  it("accepts an owning thread correlation for helper provisioning", () => {
+    const parsed = decodeCreateWorktreeInput({
+      cwd: "/repo",
+      refName: "origin/main",
+      newRefName: "feature/new",
+      threadId: "thread-hydra-correlation",
+      path: null,
+    });
+
+    expect(parsed.threadId).toBe("thread-hydra-correlation");
+  });
 });
 
 describe("GitPreparePullRequestThreadInput", () => {

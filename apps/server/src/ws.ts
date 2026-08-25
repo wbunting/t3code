@@ -924,6 +924,7 @@ const makeWsRpcLayer = (
                 refName: worktreeBaseRef,
                 newRefName: bootstrap.prepareWorktree.branch,
                 baseRefName: bootstrap.prepareWorktree.baseBranch,
+                threadId: command.threadId,
                 path: null,
               });
               targetWorktreePath = worktree.worktree.path;
