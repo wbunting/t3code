@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { ChildProcessSpawner } from "effect/unstable/process";
+import { ThreadId } from "@t3tools/contracts";
 
 import type { VcsProcessInput } from "./VcsProcess.ts";
 import * as VcsProcess from "./VcsProcess.ts";
@@ -79,6 +80,7 @@ it.effect("queues provisioning for the registered branch", () =>
         refName: "origin/main",
         newRefName: "feature/from-phone",
         baseRefName: "origin/main",
+        threadId: ThreadId.make("thread-sem-11638"),
         path: null,
       },
       "enqueue-provision",
@@ -87,6 +89,7 @@ it.effect("queues provisioning for the registered branch", () =>
     assert.deepStrictEqual(invocation.args, ["provision-background", "feature/from-phone"]);
     assert.deepStrictEqual(invocation.env, {
       HERDR_REPO: "/repos/slateo",
+      HYDRA_PROVISION_THREAD_ID: "thread-sem-11638",
       WT_FG: "0",
     });
   }),
