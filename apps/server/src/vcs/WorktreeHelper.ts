@@ -66,6 +66,7 @@ export const makeWorktreeHelperInvocation = Effect.fn(
       args: ["provision-background", targetBranch],
       env: {
         HERDR_REPO: input.cwd,
+        ...(input.threadId ? { HYDRA_PROVISION_THREAD_ID: input.threadId } : {}),
         WT_FG: "0",
       },
     };
@@ -75,6 +76,7 @@ export const makeWorktreeHelperInvocation = Effect.fn(
     args: input.newRefName ? ["new", input.newRefName] : ["checkout", input.refName],
     env: {
       HERDR_REPO: input.cwd,
+      ...(input.threadId ? { HYDRA_PROVISION_THREAD_ID: input.threadId } : {}),
       WT_FG: "0",
       ...(config.backgroundProvisioning
         ? {
