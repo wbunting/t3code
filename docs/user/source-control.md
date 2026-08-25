@@ -40,6 +40,7 @@ T3 Code works with the platforms your team already uses:
 - See if your current branch already has an open PR/MR
 - Open the review directly in your browser with one click
 - Check out a teammate's branch to review code locally
+- When a linked pull request is merged, its inactive thread is settled automatically. Running or blocked threads wait until their work finishes.
 
 ### Know Your Setup at a Glance
 
