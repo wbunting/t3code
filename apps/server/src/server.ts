@@ -58,6 +58,7 @@ import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
 import { ThreadMicrovmLifecycleReactorLive } from "./orchestration/Layers/ThreadMicrovmLifecycleReactor.ts";
 import { ThreadPrSettlementReactorLive } from "./orchestration/Layers/ThreadPrSettlementReactor.ts";
+import { ThreadChangeRequestLinkStoreLive } from "./orchestration/Layers/ThreadChangeRequestLinkStore.ts";
 import * as ThreadMicrovmLifecycle from "./hydra/ThreadMicrovmLifecycle.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
@@ -223,6 +224,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ThreadDeletionReactorLive),
   Layer.provideMerge(ThreadMicrovmLifecycleReactorLive),
   Layer.provideMerge(ThreadPrSettlementReactorLive),
+  Layer.provideMerge(ThreadChangeRequestLinkStoreLive),
   Layer.provideMerge(ThreadMicrovmLifecycle.layer),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(RuntimeReceiptBusLive),
