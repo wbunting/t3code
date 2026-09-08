@@ -18,7 +18,7 @@ export interface ThreadMicrovmLifecycleConfig {
   readonly token: string;
 }
 
-export class ThreadMicrovmLifecycleError extends Schema.TaggedErrorClass<ThreadMicrovmLifecycleError>()(
+export class ThreadMicrovmLifecycleError extends Schema.TaggedError<ThreadMicrovmLifecycleError>()(
   "ThreadMicrovmLifecycleError",
   {
     threadId: Schema.String,

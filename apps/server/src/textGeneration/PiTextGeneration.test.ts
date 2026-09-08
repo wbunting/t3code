@@ -18,7 +18,9 @@ import { PiSettings, ProviderInstanceId, TextGenerationError } from "@t3tools/co
 
 import * as ServerConfig from "../config.ts";
 import { makePiTextGeneration } from "./PiTextGeneration.ts";
-import { type TextGenerationShape } from "./TextGeneration.ts";
+import { TextGeneration } from "./TextGeneration.ts";
+
+type TextGenerationShape = TextGeneration["Service"];
 
 const decodePiSettings = Schema.decodeSync(PiSettings);
 const MOCK_PATH = NodePath.join(__dirname, "../../scripts/pi-mock-rpc.ts");

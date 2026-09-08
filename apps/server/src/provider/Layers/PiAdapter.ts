@@ -480,8 +480,8 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
           }),
         { concurrency: 1 },
       );
-      const persisted = attachments.filter(
-        (attachment): attachment is ChatAttachment => attachment !== undefined,
+      const persisted = attachments.flatMap((attachment) =>
+        attachment === undefined ? [] : [attachment],
       );
       turnState.attachmentCount += persisted.length;
       return persisted;

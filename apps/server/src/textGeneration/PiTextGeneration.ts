@@ -22,7 +22,7 @@ import {
   piImageContentFromBytes,
   type PiImageContent,
 } from "../provider/Layers/PiRpcClient.ts";
-import { type TextGenerationShape } from "./TextGeneration.ts";
+import { TextGeneration } from "./TextGeneration.ts";
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
@@ -45,7 +45,9 @@ type TextGenOperation =
   | "generateBranchName"
   | "generateThreadTitle";
 
-const encodeJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
+type TextGenerationShape = TextGeneration["Service"];
+
+const encodeJsonString = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const isTextGenerationError = Schema.is(TextGenerationError);
 
 export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* (

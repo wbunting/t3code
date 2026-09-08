@@ -118,7 +118,8 @@ const make = Effect.gen(function* () {
     // Subscribe before replay so an event committed during startup cannot
     // fall between the historical scan and the live stream. Duplicate
     // intents are safe because Hydra's release transition is monotonic.
-    yield* forkParked(Stream.runForEach(orchestrationEngine.streamDomainEvents, enqueueEvent));
+    const events = yield* orchestrationEngine.subscribeDomainEvents;
+    yield* forkParked(Stream.runForEach(events, enqueueEvent));
 
     yield* Stream.runForEach(orchestrationEngine.readEvents(0, Number.MAX_SAFE_INTEGER), (event) =>
       Effect.sync(() => intentFromEvent(event)),

@@ -62,12 +62,12 @@ describe("ThreadMicrovmLifecycleReactor", () => {
     const runtime = ManagedRuntime.make(
       ThreadMicrovmLifecycleReactorLive.pipe(
         Layer.provide(
-          Layer.succeed(OrchestrationEngineService, {
+          Layer.mock(OrchestrationEngineService)({
             readEvents: () => Stream.fromIterable(history),
             dispatch: () => Effect.die("unused"),
-            get streamDomainEvents() {
-              return Stream.fromPubSub(live);
-            },
+            subscribeDomainEvents: PubSub.subscribe(live).pipe(
+              Effect.map((subscription) => Stream.fromSubscription(subscription)),
+            ),
             latestSequence: Effect.succeed(2),
           }),
         ),
@@ -142,12 +142,12 @@ describe("ThreadMicrovmLifecycleReactor", () => {
     const runtime = ManagedRuntime.make(
       ThreadMicrovmLifecycleReactorLive.pipe(
         Layer.provide(
-          Layer.succeed(OrchestrationEngineService, {
+          Layer.mock(OrchestrationEngineService)({
             readEvents: () => Stream.fromIterable(history),
             dispatch: () => Effect.die("unused"),
-            get streamDomainEvents() {
-              return Stream.fromPubSub(live);
-            },
+            subscribeDomainEvents: PubSub.subscribe(live).pipe(
+              Effect.map((subscription) => Stream.fromSubscription(subscription)),
+            ),
             latestSequence: Effect.succeed(4),
           }),
         ),
