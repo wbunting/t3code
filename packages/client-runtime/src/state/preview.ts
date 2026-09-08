@@ -29,6 +29,17 @@ export function createPreviewEnvironmentAtoms<R, E>(
       JSON.stringify([environmentId, input.threadId]),
   };
   return {
+    vmStatus: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:thread-vm:status",
+      tag: WS_METHODS.threadVmStatus,
+      staleTimeMs: 5_000,
+    }),
+    vmConsole: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:thread-vm:console",
+      tag: WS_METHODS.threadVmConsole,
+      scheduler: lifecycleScheduler,
+      concurrency: lifecycleConcurrency,
+    }),
     list: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:preview:list",
       tag: WS_METHODS.previewList,

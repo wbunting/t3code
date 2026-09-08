@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <title>VM desktop</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #18181b;
+        color: #fafafa;
+        font: 13px system-ui;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 10px 14px;
+        border-bottom: 1px solid #3f3f46;
+      }
+      #status {
+        flex: 1;
+      }
+      button {
+        background: #27272a;
+        border: 1px solid #52525b;
+        border-radius: 5px;
+        padding: 5px 10px;
+        color: inherit;
+        cursor: pointer;
+      }
+      #desktop {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>VM desktop</strong><span id="status" role="status">Connecting…</span
+      ><button id="disconnect">Disconnect</button>
+    </header>
+    <main id="desktop" aria-label="Remote VM desktop"></main>
+    <script type="module" src="/src/vm-console.ts"></script>
+  </body>
+</html>

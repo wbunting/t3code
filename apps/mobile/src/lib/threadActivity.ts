@@ -406,7 +406,7 @@ function deriveWorkLogEntries(
     if (activity.summary === "Checkpoint captured") continue;
     if (isNoContentRuntimeWarning(activity)) continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
-    if (isAgentInternalActivity(activity)) continue;
+    if (activity.kind === "pi.monitor.status" || isAgentInternalActivity(activity)) continue;
     entries.push(toDerivedWorkLogEntry(activity));
   }
   return collapseDerivedWorkLogEntries(entries);

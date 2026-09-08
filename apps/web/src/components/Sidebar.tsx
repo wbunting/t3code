@@ -1,4 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
+import { ThreadVmIndicator } from "./chat/ThreadVmIndicator";
+import { ThreadMonitorIndicator } from "./chat/ThreadMonitorIndicator";
 import * as Schema from "effect/Schema";
 import {
   DndContext,
@@ -396,6 +398,13 @@ function SidebarThreadTooltip({
                   : modelLabel}
               </div>
             </div>
+          ) : null}
+          <ThreadVmIndicator threadRef={scopeThreadRef(thread.environmentId, thread.id)} summary />
+          {driverKind === "pi" ? (
+            <ThreadMonitorIndicator
+              threadRef={scopeThreadRef(thread.environmentId, thread.id)}
+              summary
+            />
           ) : null}
           {terminalStatus ? (
             <div className="flex min-w-0 items-center gap-2">

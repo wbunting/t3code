@@ -267,6 +267,7 @@ export default defineConfig(() => {
       devSourcemap: buildSourcemap !== false,
     },
     build: {
+      rolldownOptions: { input: { app: "index.html", vmConsole: "vm-console.html" } },
       outDir: "dist",
       emptyOutDir: true,
       manifest: true,

@@ -2,6 +2,10 @@ import {
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
 } from "@t3tools/shared/usageLimits";
+import * as Clock from "effect/Clock";
+import { ThreadVmError, type ThreadVmStatus } from "@t3tools/contracts";
+import { readThreadVm, startVmDesktop } from "./vm/ThreadVm.ts";
+import { createVmConsole } from "./vm/Console.ts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -507,6 +511,25 @@ const makeWsRpcLayer = (
             return Effect.void;
         }
       };
+      const getThreadVm = Effect.fn("getThreadVm")(function* (threadId: ThreadId) {
+        const thread = yield* projectionSnapshotQuery
+          .getThreadShellById(threadId)
+          .pipe(Effect.mapError(() => new ThreadVmError({ message: "Could not read the thread" })));
+        if (Option.isNone(thread)) return yield* new ThreadVmError({ message: "Thread not found" });
+        const project = yield* projectionSnapshotQuery
+          .getProjectShellById(thread.value.projectId)
+          .pipe(
+            Effect.mapError(() => new ThreadVmError({ message: "Could not read the project" })),
+          );
+        const cwd =
+          thread.value.worktreePath ??
+          (Option.isSome(project) ? project.value.workspaceRoot : null);
+        if (!cwd) return { state: "none", detail: "No VM assigned" } satisfies ThreadVmStatus;
+        return yield* Effect.tryPromise({
+          try: (signal) => readThreadVm(cwd, signal),
+          catch: () => new ThreadVmError({ message: "Could not read VM status" }),
+        });
+      });
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
@@ -2660,6 +2683,24 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.previewList, previewManager.list(input), {
             "rpc.aggregate": "preview",
           }),
+        [WS_METHODS.threadVmStatus]: (input) => getThreadVm(input.threadId),
+        [WS_METHODS.threadVmConsole]: (input) =>
+          getThreadVm(input.threadId).pipe(
+            Effect.flatMap((status) =>
+              Effect.tryPromise({
+                try: (signal) => startVmDesktop(status, signal),
+                catch: () =>
+                  new ThreadVmError({
+                    message:
+                      "Could not open the VM desktop. Check that its X11 desktop and SSH connection are available.",
+                  }),
+              }).pipe(
+                Effect.flatMap((address) =>
+                  Clock.currentTimeMillis.pipe(Effect.map((now) => createVmConsole(address, now))),
+                ),
+              ),
+            ),
+          ),
         [WS_METHODS.previewReportStatus]: (input) =>
           observeRpcEffect(WS_METHODS.previewReportStatus, previewManager.reportStatus(input), {
             "rpc.aggregate": "preview",

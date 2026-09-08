@@ -361,6 +361,25 @@ export function runtimeEventToActivities(
       : {};
   })();
   switch (event.type) {
+    case "session.started":
+    case "session.exited":
+    case "thread.metadata.updated": {
+      const status =
+        event.type === "thread.metadata.updated" ? event.payload.metadata?.piMonitorStatus : "";
+      if (event.provider !== "pi" || typeof status !== "string") return [];
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "pi.monitor.status",
+          summary: status || "No active monitors",
+          payload: { status },
+          turnId: null,
+          ...maybeSequence,
+        },
+      ];
+    }
     case "request.opened": {
       if (event.payload.requestType === "tool_user_input") {
         return [];

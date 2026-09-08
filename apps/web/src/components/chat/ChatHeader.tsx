@@ -1,3 +1,5 @@
+import { ThreadMonitorIndicator } from "./ThreadMonitorIndicator";
+import { ThreadVmIndicator } from "./ThreadVmIndicator";
 import {
   type EnvironmentId,
   type EditorId,
@@ -419,6 +421,13 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
+        <ThreadMonitorIndicator
+          threadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
+        />
+        <ThreadVmIndicator
+          key={`${activeThreadEnvironmentId}:${activeThreadId}`}
+          threadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
+        />
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}

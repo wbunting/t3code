@@ -676,6 +676,19 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
   ): Effect.Effect<void> =>
     Effect.gen(function* () {
       // fire-and-forget UI side-effects — Pi does not await a response
+      if (request.method === "setStatus" && request.statusKey === "pi-monitor") {
+        const stamp = yield* makeEventStamp();
+        yield* offerRuntimeEvent({
+          ...stamp,
+          provider: PROVIDER,
+          providerInstanceId: boundInstanceId,
+          threadId: context.session.threadId,
+          type: "thread.metadata.updated",
+          payload: { metadata: { piMonitorStatus: request.statusText ?? "" } },
+          ...rawEvent("pi.rpc.extension-ui", request.method, request),
+        });
+        return;
+      }
       if (
         request.method === "notify" ||
         request.method === "setStatus" ||

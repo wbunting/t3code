@@ -10,6 +10,7 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
+import { vmConsoleRouteLayer } from "./vm/Console.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ServerConfig from "./config.ts";
 import {
@@ -552,6 +553,7 @@ export const makeRoutesLayer = Layer.mergeAll(
     ),
     otlpTracesProxyRouteLayer,
     assetRouteLayer,
+    vmConsoleRouteLayer,
     attachmentUploadRouteLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,

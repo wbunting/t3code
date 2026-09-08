@@ -179,6 +179,40 @@ const enabledSettings = (overrides: Record<string, unknown> = {}) =>
   decodePiSettings({ enabled: true, ...overrides });
 
 it.layer(HarnessLayer)("PiAdapter integration", (it) => {
+  it.effect("forwards monitor status and clearing without replying to Pi", () =>
+    Effect.gen(function* () {
+      const { adapter, fake } = yield* makePiAdapterForTest(enabledSettings());
+      const threadId = ThreadId.make("pi-int-monitor");
+      const statuses = yield* Queue.unbounded<string>();
+      yield* adapter.streamEvents.pipe(
+        Stream.runForEach((event) => {
+          const status =
+            event.type === "thread.metadata.updated"
+              ? event.payload.metadata?.piMonitorStatus
+              : undefined;
+          return typeof status === "string" ? Queue.offer(statuses, status) : Effect.void;
+        }),
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        threadId,
+        provider: PI,
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+      for (const statusText of ["◉ 1 monitor: CI", ""]) {
+        yield* fake.pushExtensionUI({
+          type: "extension_ui_request",
+          id: "monitor-status",
+          method: "setStatus",
+          statusKey: "pi-monitor",
+          statusText,
+        });
+        expect(yield* Queue.take(statuses)).toBe(statusText);
+      }
+      expect(fake.extensionResponses).toEqual([]);
+    }),
+  );
   it.effect("starts a session, streams assistant text, and completes the turn", () =>
     Effect.gen(function* () {
       const { adapter, fake } = yield* makePiAdapterForTest(enabledSettings());

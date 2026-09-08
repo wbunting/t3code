@@ -1,3 +1,4 @@
+import { ThreadVmInput, ThreadVmStatus, ThreadVmConsole, ThreadVmError } from "./threadVm.ts";
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
@@ -305,6 +306,8 @@ export const WS_METHODS = {
   previewRefresh: "preview.refresh",
   previewClose: "preview.close",
   previewList: "preview.list",
+  threadVmStatus: "thread.vm.status",
+  threadVmConsole: "thread.vm.console",
   previewReportStatus: "preview.reportStatus",
   previewAutomationConnect: "previewAutomation.connect",
   previewAutomationRespond: "previewAutomation.respond",
@@ -1024,6 +1027,17 @@ const WsPreviewListRpc = Rpc.make(WS_METHODS.previewList, {
   error: EnvironmentAuthorizationError,
 });
 
+export const WsThreadVmStatusRpc = Rpc.make(WS_METHODS.threadVmStatus, {
+  payload: ThreadVmInput,
+  success: ThreadVmStatus,
+  error: Schema.Union([ThreadVmError, EnvironmentAuthorizationError]),
+});
+export const WsThreadVmConsoleRpc = Rpc.make(WS_METHODS.threadVmConsole, {
+  payload: ThreadVmInput,
+  success: ThreadVmConsole,
+  error: Schema.Union([ThreadVmError, EnvironmentAuthorizationError]),
+});
+
 const WsPreviewReportStatusRpc = Rpc.make(WS_METHODS.previewReportStatus, {
   payload: PreviewReportStatusInput,
   error: Schema.Union([PreviewError, EnvironmentAuthorizationError]),
@@ -1284,6 +1298,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsPreviewRefreshRpc,
   WsPreviewCloseRpc,
   WsPreviewListRpc,
+  WsThreadVmStatusRpc,
+  WsThreadVmConsoleRpc,
   WsPreviewReportStatusRpc,
   WsPreviewAutomationConnectRpc,
   WsPreviewAutomationRespondRpc,
