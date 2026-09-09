@@ -12,6 +12,9 @@ import { ToolActivityNativeAppReference } from "./providerRuntime.ts";
 const ASSET_PATH_MAX_LENGTH = 1024;
 
 export const AssetResource = Schema.Union([
+  Schema.TaggedStruct("github-image", {
+    url: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  }),
   Schema.TaggedStruct("workspace-file", {
     threadId: ThreadId,
     path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),

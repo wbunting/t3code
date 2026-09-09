@@ -91,3 +91,10 @@ reopening a declined pull request.
   remotes can require separate setup from the hosting provider's API access.
 - **A review cannot load:** open it on the host website while resolving connectivity, permissions,
   or rate limits.
+
+## Images in pull requests and chat
+
+Repository images linked with GitHub blob or raw-content URLs render using the GitHub account
+connected to that environment, including images in private repositories. PNG, JPEG, GIF, and WebP
+images up to 8 MB are supported. On remote environments, sign in to GitHub on the remote machine.
+Images load on demand; GitHub credentials are never sent to the client.

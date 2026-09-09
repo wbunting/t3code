@@ -405,3 +405,9 @@ describe("ChatMarkdown workspace images", () => {
     expect(html).not.toContain("Image unavailable");
   });
 });
+
+it("loads GitHub repository images through the environment signed asset path", () => {
+  const url = "https://github.com/slateo/slateo/blob/main/proof.png?raw=true";
+  render(`![Proof](${url})`);
+  expect(testState.resources).toContainEqual({ _tag: "github-image", url });
+});

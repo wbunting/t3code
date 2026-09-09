@@ -48,6 +48,7 @@ import { parseAttachmentFileExtension, resolveAttachmentPathById } from "../atta
 import * as ServerConfig from "../config.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import { resolveGitHubImage } from "./GitHubImage.ts";
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
 import { openMediaFile, readMediaFileHeader, type OpenMediaFile } from "./MediaFile.ts";
 
@@ -272,8 +273,21 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
   let imageDimensions: ImageDimensions | null = null;
 
   switch (input.resource._tag) {
+    case "github-image":
     case "media-file": {
-      let requestedPath = input.resource.path;
+      const resource = input.resource;
+      let requestedPath: string;
+      if (resource._tag === "github-image") {
+        const config = yield* ServerConfig.ServerConfig;
+        const now = yield* Clock.currentTimeMillis;
+        requestedPath = yield* Effect.tryPromise({
+          try: () =>
+            resolveGitHubImage(resource.url, path.join(config.stateDir, "github-images"), now),
+          catch: (cause) => new AssetWorkspaceAssetInspectionError({ resource, cause }),
+        });
+      } else {
+        requestedPath = resource.path;
+      }
       if (!path.isAbsolute(requestedPath)) {
         if (!input.workspaceRoot) {
           return yield* new AssetWorkspaceContextNotFoundError({ resource: input.resource });

@@ -1,3 +1,4 @@
+import { parseGitHubImageUrl } from "@t3tools/shared/githubImage";
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
@@ -2195,6 +2196,17 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         );
       }
       const imageSource = classifyMarkdownImageSource(image.href, props.workspaceRoot ?? null);
+      if (parseGitHubImageUrl(image.href)) {
+        return (
+          <ThreadMarkdownImage
+            environmentId={props.environmentId}
+            resource={{ _tag: "github-image", url: image.href }}
+            alt={image.alt}
+            actionsSource={media?.source.actionsSource}
+            onPressPreview={(source) => setExpandedFile((current) => current ?? source)}
+          />
+        );
+      }
       if (imageSource._tag === "Direct") {
         return (
           <ThreadMarkdownImageView

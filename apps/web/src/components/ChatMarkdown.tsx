@@ -1,3 +1,4 @@
+import { parseGitHubImageUrl } from "@t3tools/shared/githubImage";
 import { useAtomValue } from "@effect/atom-react";
 import {
   CheckIcon,
@@ -1526,7 +1527,7 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
   readonly environmentId: EnvironmentId;
   readonly resource: Extract<
     AssetResource,
-    { readonly _tag: "attachment" | "workspace-file" | "media-file" }
+    { readonly _tag: "attachment" | "workspace-file" | "media-file" | "github-image" }
   >;
   readonly kind?: "image" | "video";
   readonly alt: string;
@@ -1551,7 +1552,10 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
         : undefined;
   const reference = path ? mediaFileReference(path, props.workspaceRoot) : undefined;
   const relativePath = reference?.relativePath;
-  const src = assetUrl._tag === "Success" ? assetUrl.url + (props.srcFragment ?? "") : null;
+  const directFallback =
+    resource._tag === "github-image" && assetUrl._tag === "Failure" ? resource.url : null;
+  const src =
+    assetUrl._tag === "Success" ? assetUrl.url + (props.srcFragment ?? "") : directFallback;
   // The server reads the pixel size from the file header, so the slot can be
   // the image's final box instead of a 16:9 guess. An authored size wins; a
   // caller's height cap shrinks the box while keeping the ratio.
@@ -1570,7 +1574,7 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
     src,
     asset: { environmentId: props.environmentId, resource },
     ...(reference ? { reference } : {}),
-    ...(relativePath && resource._tag !== "attachment"
+    ...(relativePath && (resource._tag === "media-file" || resource._tag === "workspace-file")
       ? {
           onOpenFile: () =>
             useRightPanelStore
@@ -1587,7 +1591,7 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
     return (
       <ChatMarkdownVideo
         src={src}
-        sourceFailed={assetUrl._tag === "Failure"}
+        sourceFailed={assetUrl._tag === "Failure" && !directFallback}
         alt={props.alt}
         copyMarkdown={props.copyMarkdown}
         style={props.style}
@@ -1602,7 +1606,7 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
     <ChatMarkdownImage
       key={JSON.stringify([props.environmentId, props.resource, props.srcFragment])}
       src={src}
-      sourceFailed={assetUrl._tag === "Failure"}
+      sourceFailed={assetUrl._tag === "Failure" && !directFallback}
       alt={props.alt}
       copyMarkdown={props.copyMarkdown}
       standalone={props.standalone ?? true}
@@ -2995,7 +2999,9 @@ const CHAT_MARKDOWN_COMPONENTS = {
     );
   },
   img: function MarkdownImage({ node, title, src, alt, ...props }) {
-    const { expandMedia, cwd, imageBaseDir, threadRef } = use(ChatMarkdownRendererContext);
+    const { expandMedia, cwd, imageBaseDir, threadRef, environmentId } = use(
+      ChatMarkdownRendererContext,
+    );
     const imageExpand = use(MarkdownLinkContext) ? undefined : expandMedia;
     const localSrc = node?.properties?.dataLocalSrc;
     const markdownTitle = node?.properties?.dataMarkdownTitle;
@@ -3012,6 +3018,19 @@ const CHAT_MARKDOWN_COMPONENTS = {
     const authoredSizeStyle = authoredImageSizeStyle(width, height);
     const imageSource = classifyMarkdownImageSource(classifiedSrc, imageBaseDir ?? cwd);
     const kind = mediaKindFromPath(classifiedSrc) ?? "image";
+    if (environmentId && kind === "image" && parseGitHubImageUrl(classifiedSrc)) {
+      return (
+        <ChatMarkdownAssetImage
+          environmentId={environmentId}
+          resource={{ _tag: "github-image", url: classifiedSrc }}
+          alt={altText}
+          copyMarkdown={copyMarkdown}
+          standalone={standalone}
+          style={authoredSizeStyle}
+          onImageExpand={imageExpand}
+        />
+      );
+    }
     if (imageSource._tag === "Direct") {
       const mediaSrc = resolveProtocolRelativeMediaUrl(imageSource.uri);
       const originalUrl =
