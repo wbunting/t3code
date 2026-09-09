@@ -220,6 +220,31 @@ describe("settle thread shortcut", () => {
   });
 });
 
+describe("copy thread ID shortcut", () => {
+  it("resolves shifted period by its physical key and leaves terminal focus alone", () => {
+    const bindings: ResolvedKeybindingsConfig = [
+      {
+        shortcut: modShortcut(".", { shiftKey: true }),
+        command: "thread.copyId",
+        whenAst: whenNot(whenIdentifier("terminalFocus")),
+      },
+    ];
+    for (const key of [".", ">"]) {
+      const press = event({ key, code: "Period", metaKey: true, shiftKey: true });
+      assert.equal(
+        resolveShortcutCommand(press, bindings, { platform: "MacIntel" }),
+        "thread.copyId",
+      );
+      assert.isNull(
+        resolveShortcutCommand(press, bindings, {
+          platform: "MacIntel",
+          context: { terminalFocus: true },
+        }),
+      );
+    }
+  });
+});
+
 describe("copy thread reference shortcut", () => {
   it("resolves Cmd+Shift+C on macOS and Ctrl+Shift+C elsewhere", () => {
     assert.equal(

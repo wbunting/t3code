@@ -115,6 +115,15 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedThreadSettle.command, "thread.settle");
 
+    for (const key of ["cmd+shift+.", "cmd+shift+>"]) {
+      const savedCopyId = yield* decode(KeybindingRule, {
+        key,
+        command: "thread.copyId",
+        when: "!terminalFocus",
+      });
+      assert.strictEqual(savedCopyId.command, "thread.copyId");
+    }
+
     const parsedThreadCopyReference = yield* decode(KeybindingRule, {
       key: "mod+shift+c",
       command: "thread.copyReference",

@@ -623,28 +623,35 @@ function OpenCommandPaletteDialog(props: {
           linkedPullRequestUrl:
             activeThread?.linkedPullRequest?.url ?? activeThread?.branchPullRequest?.url ?? null,
         });
-  const copyActiveThreadReference = useCallback(async () => {
-    const target = activeThreadReferenceCopyTarget;
-    if (target === null) return;
-    try {
-      const didCopy = await writeTextToClipboard(target.value, target.clipboardTarget);
-      if (!didCopy) return;
-      toastManager.add({
-        type: "success",
-        title: target.successTitle,
-        description: target.value,
-      });
-    } catch (error) {
-      console.error(error);
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: target.failureTitle,
-          description: error instanceof Error ? error.message : "An error occurred.",
-        }),
-      );
-    }
-  }, [activeThreadReferenceCopyTarget]);
+  const copyActiveThreadReference = useCallback(
+    async (copyIdOnly = false) => {
+      const target = copyIdOnly
+        ? activeThread && pathname !== "/pull-requests"
+          ? resolveThreadReferenceCopyTarget({ threadId: activeThread.id })
+          : null
+        : activeThreadReferenceCopyTarget;
+      if (target === null) return;
+      try {
+        const didCopy = await writeTextToClipboard(target.value, target.clipboardTarget);
+        if (!didCopy) return;
+        toastManager.add({
+          type: "success",
+          title: target.successTitle,
+          description: target.value,
+        });
+      } catch (error) {
+        console.error(error);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: target.failureTitle,
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+    },
+    [activeThreadReferenceCopyTarget, activeThread, pathname],
+  );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -1603,17 +1610,31 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  if (activeThread && pathname !== "/pull-requests") {
+    actionItems.push({
+      kind: "action",
+      value: "action:copy-thread-id",
+      searchTerms: ["copy", "thread", "id"],
+      title: "Copy thread ID",
+      description: activeThread.id,
+      icon: <LinkIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "thread.copyId",
+      run: () => copyActiveThreadReference(true),
+    });
+  }
   if (activeThreadReferenceCopyTarget !== null) {
     actionItems.push({
       kind: "action",
       value: "action:copy-thread-reference",
       searchTerms: ["copy", "pull request", "pr link", "thread id", "reference"],
       title:
-        activeThreadReferenceCopyTarget.kind === "pull-request" ? "Copy PR link" : "Copy thread ID",
+        activeThreadReferenceCopyTarget.kind === "pull-request"
+          ? "Copy PR link"
+          : "Copy thread reference",
       description: activeThreadReferenceCopyTarget.value,
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "thread.copyReference",
-      run: copyActiveThreadReference,
+      run: () => copyActiveThreadReference(),
     });
   }
 
@@ -2286,12 +2307,12 @@ function OpenCommandPaletteDialog(props: {
       }
       return;
     }
-    if (command === "thread.copyReference") {
+    if (command === "thread.copyReference" || command === "thread.copyId") {
       event.preventDefault();
       event.stopPropagation();
-      if (activeThreadReferenceCopyTarget === null) return;
+      if (command === "thread.copyReference" && activeThreadReferenceCopyTarget === null) return;
       setOpen(false);
-      void copyActiveThreadReference();
+      void copyActiveThreadReference(command === "thread.copyId");
       return;
     }
 
