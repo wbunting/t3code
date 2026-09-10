@@ -14,7 +14,6 @@ import { ChildProcess } from "effect/unstable/process";
 
 import {
   buildServerProvider,
-  detailFromResult,
   isCommandMissingCause,
   parseGenericCliVersion,
   providerModelsFromSettings,
@@ -232,7 +231,11 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
   const parsedVersion = parseGenericCliVersion(`${version.stdout}\n${version.stderr}`);
 
   if (version.code !== 0) {
-    const detail = detailFromResult(version);
+    yield* Effect.logWarning("Pi CLI version probe exited with a non-zero status.", {
+      exitCode: version.code,
+      stdoutLength: version.stdout.length,
+      stderrLength: version.stderr.length,
+    });
     return buildServerProvider({
       presentation: PI_PRESENTATION,
       enabled: piSettings.enabled,
@@ -243,7 +246,7 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
         version: parsedVersion,
         status: "error",
         auth: { status: "unknown" },
-        message: detail ?? "Pi CLI returned an error during health check.",
+        message: "Pi CLI returned an error during health check.",
       },
     });
   }

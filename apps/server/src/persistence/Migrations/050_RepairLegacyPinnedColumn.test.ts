@@ -16,7 +16,7 @@ it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()))("050_RepairLegacyPinned
           VALUES (36, 'ThreadChangeRequestLinks')
         `;
 
-      yield* runMigrations({ toMigrationInclusive: 50 });
+      yield* runMigrations({ toMigrationInclusive: 51 });
 
       const columns = yield* sql<{ readonly name: string }>`
           PRAGMA table_info(projection_threads)
